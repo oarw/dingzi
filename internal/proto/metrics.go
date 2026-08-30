@@ -77,9 +77,44 @@ type State struct {
 
 // Uptime returns seconds since boot relative to nowUnix, or 0 if BootTime is
 // unset or in the future.
+//
+// A machine whose clock runs ahead of the panel's would otherwise produce an
+// enormous number, because the subtraction underflows on an unsigned type.
 func (h Host) Uptime(nowUnix int64) uint64 {
 	if h.BootTime == 0 || int64(h.BootTime) > nowUnix {
 		return 0
 	}
 	return uint64(nowUnix - int64(h.BootTime))
+}
+
+// Equal reports whether two host records describe the same facts.
+//
+// Host holds a slice, which makes it non-comparable with == as a matter of the
+// type rather than of any particular value, so the fields are compared
+// explicitly. The agent uses this to decide whether anything actually changed
+// before spending a frame on an update. A field added to Host must be added
+// here too; the test in this package guards that by comparing field counts.
+func (h Host) Equal(o Host) bool {
+	if len(h.GPUs) != len(o.GPUs) {
+		return false
+	}
+	for i := range h.GPUs {
+		if h.GPUs[i] != o.GPUs[i] {
+			return false
+		}
+	}
+	return h.Platform == o.Platform &&
+		h.PlatformVersion == o.PlatformVersion &&
+		h.OS == o.OS &&
+		h.Kernel == o.Kernel &&
+		h.Arch == o.Arch &&
+		h.Virtualization == o.Virtualization &&
+		h.Hostname == o.Hostname &&
+		h.CPUModel == o.CPUModel &&
+		h.CPUCores == o.CPUCores &&
+		h.CPUThreads == o.CPUThreads &&
+		h.MemTotal == o.MemTotal &&
+		h.SwapTotal == o.SwapTotal &&
+		h.DiskTotal == o.DiskTotal &&
+		h.BootTime == o.BootTime
 }

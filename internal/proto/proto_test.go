@@ -2,6 +2,7 @@ package proto
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -86,6 +87,54 @@ func TestTaskValid(t *testing.T) {
 				t.Errorf("Valid = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHostEqual(t *testing.T) {
+	base := Host{Platform: "ubuntu", PlatformVersion: "24.04", OS: "linux",
+		Kernel: "6.8.0", Arch: "amd64", Virtualization: "kvm", Hostname: "a",
+		CPUModel: "EPYC", CPUCores: 4, CPUThreads: 8, MemTotal: 1 << 34,
+		SwapTotal: 1 << 30, DiskTotal: 1 << 38, BootTime: 1700000000,
+		GPUs: []string{"A100"}}
+
+	if !base.Equal(base) {
+		t.Error("a host is not equal to itself")
+	}
+	// Every field must participate, or a change to it silently never reports.
+	mutate := map[string]func(*Host){
+		"Platform":        func(h *Host) { h.Platform = "debian" },
+		"PlatformVersion": func(h *Host) { h.PlatformVersion = "12" },
+		"OS":              func(h *Host) { h.OS = "windows" },
+		"Kernel":          func(h *Host) { h.Kernel = "6.9.0" },
+		"Arch":            func(h *Host) { h.Arch = "arm64" },
+		"Virtualization":  func(h *Host) { h.Virtualization = "docker" },
+		"Hostname":        func(h *Host) { h.Hostname = "b" },
+		"CPUModel":        func(h *Host) { h.CPUModel = "Xeon" },
+		"CPUCores":        func(h *Host) { h.CPUCores = 8 },
+		"CPUThreads":      func(h *Host) { h.CPUThreads = 16 },
+		"MemTotal":        func(h *Host) { h.MemTotal = 1 << 35 },
+		"SwapTotal":       func(h *Host) { h.SwapTotal = 0 },
+		"DiskTotal":       func(h *Host) { h.DiskTotal = 1 << 39 },
+		"BootTime":        func(h *Host) { h.BootTime = 1700000001 },
+		"GPUs content":    func(h *Host) { h.GPUs = []string{"H100"} },
+		"GPUs length":     func(h *Host) { h.GPUs = nil },
+	}
+	for name, fn := range mutate {
+		t.Run(name, func(t *testing.T) {
+			other := base
+			other.GPUs = append([]string(nil), base.GPUs...)
+			fn(&other)
+			if base.Equal(other) {
+				t.Errorf("Equal ignored a change to %s", name)
+			}
+		})
+	}
+
+	// Guard against a field being added to Host without being added to Equal.
+	const fieldsCoveredByEqual = 15 // 14 scalars + GPUs
+	if got := reflect.TypeOf(Host{}).NumField(); got != fieldsCoveredByEqual {
+		t.Errorf("Host has %d fields but Equal covers %d — update both",
+			got, fieldsCoveredByEqual)
 	}
 }
 

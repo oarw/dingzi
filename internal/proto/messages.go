@@ -32,7 +32,8 @@ const (
 	TypeHostUpdate = "host_update"
 	// TypeTaskResult carries the outcome of a dispatched [Task].
 	TypeTaskResult = "task_result"
-	// TypePong answers [TypePing].
+	// TypePong answers [TypePing]. Either side may send it, because either side
+	// may ping.
 	TypePong = "pong"
 )
 
@@ -42,8 +43,11 @@ const (
 	TypeWelcome = "welcome"
 	// TypeTask dispatches work (a reachability check, a shell command).
 	TypeTask = "task"
-	// TypePing is an application-level liveness probe. It rides above the
-	// WebSocket control ping because some proxies swallow control frames.
+	// TypePing is an application-level liveness probe, answered with
+	// [TypePong]. It rides above the WebSocket control ping because some
+	// proxies swallow control frames, which is how a connection ends up
+	// half-open: writes succeed into a void while both sides believe they are
+	// connected. Either side may send it.
 	TypePing = "ping"
 	// TypeError reports a problem with the previous frame. Fatal errors are
 	// followed by the server closing the connection.
