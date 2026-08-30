@@ -1,0 +1,28 @@
+# build output
+/bin/
+/dist/
+*.exe
+*.exe~
+*.test
+*.out
+
+# runtime data
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# local config (keep the examples)
+config.yaml
+agent.yaml
+!config.example.yaml
+!agent.example.yaml
+
+# editors / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
