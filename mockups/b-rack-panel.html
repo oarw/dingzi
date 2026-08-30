@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dingzi 钉子 · 方案 B 机架面板</title>
+</head>
+<body>
+<!--
+THESIS: The fleet as the rack it physically is — each machine a 1U module with
+silkscreened labels and recessed indicator wells at fixed coordinates. Refuses
+the rounded-card dashboard, but knowingly lands near what good ops hardware
+already looks like.
+OWN-WORLD: Brushed aluminium faceplates, anodised dark wells, silkscreen caps,
+Phillips screws at the corners. Indicator lamps in fixed positions so position
+alone identifies a metric. Engraved-looking labels, technical mono numerals.
+STORY: The operator reads the rack the way they'd read real hardware — lamp
+positions first, numbers second.
+FIRST VIEWPORT: Rack rails framing stacked machine modules, each faceplate
+carrying ten labelled readouts on one grid.
+FORM: Rack-mount front panel, candidate 1 of 7 (my top rank), seed f4ae58b6.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+-->
+<style>
+:root{
+  --room:#191b1e; --rail:#2a2d32;
+  --plate1:#4a4e55; --plate2:#3c4046; --plate-lo:#33363b;
+  --well:#1a1c20; --groove:rgba(0,0,0,.55); --hi:rgba(255,255,255,.13);
+  --silk:#e8e9ea; --silk-dim:#9aa0a8; --engrave:rgba(0,0,0,.5);
+  --led-on:#4ade80; --led-warn:#fbbf24; --led-bad:#f0453a; --led-off:#23262a;
+  --val:#e8e9ea;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+}
+@media (prefers-color-scheme:light){
+  :root[data-theme=auto]{
+    --room:#c8cace; --rail:#aeb2b8;
+    --plate1:#e4e6e9; --plate2:#d6d9dd; --plate-lo:#c9ccd1;
+    --well:#f2f3f5; --groove:rgba(0,0,0,.22); --hi:rgba(255,255,255,.85);
+    --silk:#22252a; --silk-dim:#61666d; --engrave:rgba(255,255,255,.6);
+    --led-off:#b6bac0; --val:#1a1d21;
+  }
+}
+:root[data-theme=light]{
+  --room:#c8cace; --rail:#aeb2b8;
+  --plate1:#e4e6e9; --plate2:#d6d9dd; --plate-lo:#c9ccd1;
+  --well:#f2f3f5; --groove:rgba(0,0,0,.22); --hi:rgba(255,255,255,.85);
+  --silk:#22252a; --silk-dim:#61666d; --engrave:rgba(255,255,255,.6);
+  --led-off:#b6bac0; --val:#1a1d21;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--room);color:var(--silk);font-family:var(--sans);font-size:14px;
+  line-height:1.4;padding:20px 18px 54px;min-height:100vh;font-variant-numeric:tabular-nums}
+.rack{max-width:1580px;margin:0 auto}
+/* ---- rack header on a rail --------------------------------------------- */
+.rail{
+  background:linear-gradient(180deg,var(--rail),var(--room));
+  border:1px solid var(--groove);border-radius:4px 4px 0 0;
+  padding:12px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  box-shadow:inset 0 1px 0 var(--hi);
+}
+.brand{font-family:var(--mono);font-size:17px;font-weight:700;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--silk);text-shadow:0 1px 0 var(--engrave)}
+.brand small{display:block;font-size:9px;letter-spacing:.26em;color:var(--silk-dim);
+  margin-top:4px;font-weight:400}
+.stat{display:flex;gap:18px;margin-left:auto;align-items:center;flex-wrap:wrap}
+.stat span{font-family:var(--mono);font-size:11px;letter-spacing:.10em;color:var(--silk-dim);
+  display:flex;align-items:center;gap:6px}
+.stat b{font-size:15px;color:var(--silk);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--groove)}
+.dot.g{background:var(--led-on);box-shadow:0 0 7px var(--led-on)}
+.dot.r{background:var(--led-bad);box-shadow:0 0 7px var(--led-bad)}
+.dot.k{background:var(--led-off)}
+.themer{display:flex;border:1px solid var(--groove);border-radius:3px;overflow:hidden}
+.themer button{font:inherit;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  padding:5px 9px;background:var(--plate-lo);color:var(--silk-dim);border:0;cursor:pointer}
+.themer button[aria-pressed=true]{background:var(--plate1);color:var(--silk);font-weight:700}
+.themer button:focus-visible{outline:2px solid var(--led-warn);outline-offset:-2px}
+
+.bay{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(452px,1fr));
+  padding:12px;background:var(--rail);border:1px solid var(--groove);border-top:0;
+  border-radius:0 0 4px 4px}
+@media (max-width:960px){.bay{grid-template-columns:1fr}}
+
+/* ---- 1U faceplate ------------------------------------------------------- */
+/* Brushed metal, properly. The first attempt read as flat grey because a 2.8%
+   white stripe over a shallow gradient is invisible: real brushed aluminium has
+   directional grain plus a bright horizontal specular band where the light
+   crosses it. Both are needed, and the grain must be fine and high-contrast
+   enough to survive the screen. */
+.u{
+  position:relative;border-radius:3px;padding:11px 15px 13px;
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(255,255,255,.055) 0 1px, rgba(0,0,0,.05) 1px 2px, transparent 2px 4px),
+    linear-gradient(180deg,
+      rgba(255,255,255,.10) 0%, rgba(255,255,255,.015) 16%,
+      transparent 34%, rgba(0,0,0,.05) 68%, rgba(0,0,0,.13) 100%),
+    linear-gradient(176deg,var(--plate1) 0%,var(--plate2) 55%,var(--plate-lo) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--groove),
+    inset 1px 0 0 rgba(255,255,255,.05), inset -1px 0 0 rgba(0,0,0,.16),
+    0 3px 7px rgba(0,0,0,.34);
+}
+.u.dead{filter:saturate(.35) brightness(.86)}
+/* Mounting screws — the plate is a physical object. */
+.u::before,.u::after{
+  content:"";position:absolute;width:7px;height:7px;border-radius:50%;top:9px;
+  background:radial-gradient(circle at 35% 32%,var(--plate1),var(--groove));
+  box-shadow:inset 0 0 0 1px var(--groove);
+}
+.u::before{left:5px}.u::after{right:5px}
+.u-top{display:flex;align-items:center;gap:9px;padding:0 6px 9px;
+  border-bottom:1px solid var(--groove);margin-bottom:10px;
+  box-shadow:0 1px 0 var(--hi)}
+/* A tight halo, not a bloom: this panel sits in a lit room, where an indicator
+   LED reads as a lit lens with a small spill, not a neon sign. */
+.u-led{width:10px;height:10px;border-radius:50%;flex:none;background:var(--led-on);
+  box-shadow:0 0 3px var(--led-on),inset 0 0 0 1px var(--groove)}
+.u-led.w{background:var(--led-bad);box-shadow:0 0 3px var(--led-bad),inset 0 0 0 1px var(--groove)}
+.u-led.k{background:var(--led-off);box-shadow:inset 0 1px 3px var(--groove)}
+.u-name{font-family:var(--mono);font-size:15px;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;text-shadow:0 1px 0 var(--engrave)}
+/* Engraved state plate — text, so state never rests on colour alone. */
+.tag{font-family:var(--mono);font-size:9px;letter-spacing:.14em;font-weight:700;
+  padding:2px 7px;border-radius:2px;background:var(--well);color:var(--silk-dim);
+  box-shadow:inset 0 1px 2px var(--groove)}
+.tag.w{color:var(--led-bad)}
+.u-spec{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--silk-dim);
+  text-align:right;line-height:1.5}
+
+/* ---- readouts in fixed wells ------------------------------------------- */
+.reads{display:grid;grid-template-columns:repeat(4,1fr);gap:9px 11px;padding:0 6px}
+.r{min-width:0}
+.r.w2{grid-column:span 2}
+.r.w4{grid-column:1/-1}
+/* The limit tick marks the 80% caution line. The bar is already scaled to the
+   cap, so a tick at the right edge would only restate the end of the bar. */
+.lim span{left:80%;right:auto}
+.lbl{font-family:var(--mono);font-size:8px;letter-spacing:.20em;text-transform:uppercase;
+  color:var(--silk-dim);margin-bottom:4px;text-shadow:0 1px 0 var(--engrave)}
+.wl{background:var(--well);border-radius:2px;padding:5px 7px;
+  box-shadow:inset 0 1px 3px var(--groove),0 1px 0 var(--hi)}
+.v{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--val);letter-spacing:.01em}
+.v.c{color:var(--led-warn)}.v.b{color:var(--led-bad)}.v.k{color:var(--silk-dim)}
+.v small{font-size:10px;color:var(--silk-dim);font-weight:400;margin-left:4px}
+/* Meter: discrete ticks, count carries the value. */
+.mtr{display:flex;gap:1.5px;height:5px;margin-top:4px}
+.tk{flex:1;border-radius:1px;background:var(--led-off);opacity:.5}
+.tk.on{opacity:1;background:var(--led-on)}
+.tk.on.c{background:var(--led-warn)}.tk.on.b{background:var(--led-bad)}
+.pair{display:flex;gap:13px}
+.pair i{font-style:normal;color:var(--silk-dim);font-size:10px;margin-right:3px}
+.lim{position:relative}
+.lim span{position:absolute;top:-3px;bottom:-3px;right:0;width:2px;background:var(--val);opacity:.6}
+.foot{max-width:1580px;margin:20px auto 0;font-family:var(--mono);font-size:10px;
+  letter-spacing:.08em;color:var(--silk-dim);display:flex;gap:20px;flex-wrap:wrap}
+.foot b{color:var(--silk);font-weight:600}
+
+/* ---- phone --------------------------------------------------------------
+   Must come last: these override .reads and .stat, and at equal specificity
+   the cascade is decided by source order. Placed above them, the query matched
+   while .reads stayed at four 68px columns. */
+@media (max-width:560px){
+  body{padding:14px 10px 44px}
+  .bay{padding:8px;gap:8px}
+  .rail{padding:11px 12px}
+  .reads{grid-template-columns:repeat(2,1fr);gap:9px}
+  .r.w2,.r.w4{grid-column:1/-1}
+  .stat{margin-left:0;width:100%;gap:12px}
+  .brand{font-size:15px}
+  .brand small{font-size:8px}
+  .u-name{font-size:13px}
+  .u-spec{font-size:9px}
+  .u{padding:10px 12px 12px}
+  .foot{gap:6px 14px}
+}
+</style>
+<div class="rack">
+  <div class="rail">
+    <div class="brand">DINGZI<small>钉子 · 机架视图</small></div>
+    <div class="stat">
+      <span><i class="dot g"></i><b id="n-on">0</b>在线</span>
+      <span><i class="dot r"></i><b id="n-warn">0</b>告警</span>
+      <span><i class="dot k"></i><b id="n-off">0</b>离线</span>
+      <div class="themer" role="group" aria-label="主题">
+        <button type="button" data-t="auto" aria-pressed="true">自动</button>
+        <button type="button" data-t="light" aria-pressed="false">亮</button>
+        <button type="button" data-t="dark" aria-pressed="false">暗</button>
+      </div>
+    </div>
+  </div>
+  <div class="bay" id="bay"></div>
+  <div class="foot">
+    <span><b>刻度段数</b>= 数值</span><span><b>│</b>= 配额上限</span>
+    <span><b>灯位固定</b>,位置即指标</span>
+    <span>阈值 <b>&lt;70 / 70–89 / ≥90</b></span>
+    <span>示例数据为合成,非真实机队</span>
+  </div>
+</div>
+<script>
+const FLEET=[
+ {n:"tokyo-1", os:"Ubuntu 24.04",a:"amd64",c:"4核8线",cpu:12,mem:38,swp:0, dsk:44,
+  l:[.24,.31,.28],up:"42天",di:1.26e6,uo:3.4e5,ti:2.31e12,to:8.9e11,q:6e12,qm:"sum"},
+ {n:"sfo-web", os:"Debian 12", a:"amd64",c:"8核16线",cpu:67,mem:71,swp:12,dsk:52,
+  l:[1.82,1.64,1.41],up:"17天",di:8.4e6,uo:2.1e6,ti:1.8e13,to:4.2e12,q:2.6e13,qm:"sum"},
+ {n:"fra-db",  os:"AlmaLinux 9",a:"amd64",c:"4核8线",cpu:23,mem:84,swp:38,dsk:91,
+  l:[.91,.88,.79],up:"103天",di:2.2e5,uo:9.5e4,ti:9.4e11,to:3.1e11,q:0,qm:"sum"},
+ {n:"nyc-cache",os:"Ubuntu 24.04",a:"arm64",c:"2核2线",cpu:8,mem:22,swp:0,dsk:31,
+  l:[.11,.09,.12],up:"8天",di:5.4e5,uo:1.8e5,ti:1.2e11,to:4.5e10,q:5.5e11,qm:"out"},
+ {n:"sgp-edge",os:"Ubuntu 24.04",a:"arm64",c:"2核2线",off:1,up:"离线 12 分钟"},
+ {n:"lon-mail",os:"Debian 12",a:"amd64",c:"2核4线",cpu:31,mem:57,swp:4,dsk:68,
+  l:[.42,.38,.35],up:"61天",di:9.1e5,uo:1.4e6,ti:6.2e11,to:7.7e11,q:8.4e11,qm:"max"}];
+// Saturation metrics warn at 70/90; a bandwidth cap runs on 80/95, where the
+// operator still has room to act.
+const T={c:70,b:90};
+function bd(v){return v>=T.b?"b":v>=T.c?"c":""}
+function qbd(v){return v>=95?"b":v>=80?"c":""}
+function human(b){const u=["B","K","M","G","T","P"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}
+  return (b<10&&i>0?b.toFixed(1):Math.round(b))+u[i]}
+function mtr(v,c){let h='<div class="mtr" aria-hidden="true">',on=Math.round(v/6.25);
+  for(let i=0;i<16;i++)h+='<div class="tk'+(i<on?" on "+c:"")+'"></div>';return h+'</div>'}
+function pc(k,v,off){
+  if(off)return '<div class="r"><div class="lbl">'+k+'</div><div class="wl">'+
+    '<div class="v k">——</div></div>'+mtr(0,"")+'</div>';
+  const c=bd(v);return '<div class="r"><div class="lbl">'+k+'</div><div class="wl">'+
+    '<div class="v '+c+'">'+v+'<small>%</small></div></div>'+mtr(v,c)+'</div>'}
+function qta(m){
+  if(!m.q)return '<div class="r w4"><div class="lbl">流量 ↓/↑ · 未设配额</div><div class="wl">'+
+    '<div class="v"><span class="pair"><span><i>↓</i>'+human(m.ti)+'</span>'+
+    '<span><i>↑</i>'+human(m.to)+'</span></span></div></div></div>';
+  const u=m.qm==="out"?m.to:m.qm==="max"?Math.max(m.ti,m.to):m.ti+m.to;
+  const p=Math.min(100,Math.round(u/m.q*100)),c=qbd(p);
+  return '<div class="r w4"><div class="lbl">流量 ↓/↑ · 配额 '+human(m.q)+' ('+m.qm+')</div>'+
+    '<div class="wl"><div class="v '+c+'"><span class="pair"><span><i>↓</i>'+human(m.ti)+
+    '</span><span><i>↑</i>'+human(m.to)+'</span></span><small>'+p+'% 已用</small></div></div>'+
+    '<div class="lim">'+mtr(p,c)+'<span></span></div></div>'}
+function plate(m){
+  const o=!!m.off,hot=!o&&[m.cpu,m.mem,m.swp,m.dsk].some(v=>v>=T.b);
+  return '<article class="u'+(o?" dead":"")+'">'+
+   '<div class="u-top"><span class="u-led '+(o?"k":hot?"w":"")+'" aria-hidden="true"></span>'+
+   '<span class="u-name">'+m.n+'</span>'+
+   (o?'<span class="tag">离线</span>':hot?'<span class="tag w">告警</span>':'')+
+   // Uptime sits with the spec: both are static facts, and keeping it out of the
+   // readout grid is what lets every card resolve to the same height.
+   '<span class="u-spec">'+m.os+' · '+m.a+' · '+m.c+'<br>'+
+   '<span style="letter-spacing:.14em">'+(o?m.up:"在线 "+m.up)+'</span></span></div>'+
+   '<div class="reads">'+
+     pc("CPU",m.cpu,o)+pc("内存",m.mem,o)+pc("交换",m.swp,o)+pc("硬盘",m.dsk,o)+
+     '<div class="r w2"><div class="lbl">网速 ↓/↑</div><div class="wl"><div class="v'+
+       (o?" k":"")+'">'+(o?"——":'<span class="pair"><span><i>↓</i>'+human(m.di)+
+       '/s</span><span><i>↑</i>'+human(m.uo)+'/s</span></span>')+'</div></div></div>'+
+     // Load spans two cells: three 4-char figures wrapped to a second line in
+     // one cell and dragged every card's height out of alignment.
+     '<div class="r w2"><div class="lbl">负载 1/5/15</div><div class="wl"><div class="v'+
+       (o?" k":"")+'" style="font-size:12px">'+(o?"——":m.l.map(x=>x.toFixed(2)).join("  "))+
+       '</div></div></div>'+
+     (o?'<div class="r w4"><div class="lbl">流量 ↓/↑</div><div class="wl">'+
+       '<div class="v k">——</div></div></div>':qta(m))+
+   '</div></article>'}
+document.getElementById("bay").innerHTML=FLEET.map(plate).join("");
+document.getElementById("n-on").textContent=FLEET.filter(m=>!m.off).length;
+document.getElementById("n-off").textContent=FLEET.filter(m=>m.off).length;
+document.getElementById("n-warn").textContent=FLEET.filter(m=>!m.off&&
+  [m.cpu,m.mem,m.swp,m.dsk].some(v=>v>=T.b)).length;
+// Theme: ?theme= wins (deep-linkable, and what screenshots capture), then the
+// stored preference, then follow the OS.
+const html=document.documentElement,btns=[...document.querySelectorAll(".themer button")];
+function setT(t,persist){html.dataset.theme=t;
+  if(persist!==false)localStorage.setItem("dingzi-theme",t);
+  btns.forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.t===t)))}
+btns.forEach(b=>b.onclick=()=>setT(b.dataset.t));
+const forced=new URLSearchParams(location.search).get("theme");
+setT(forced||localStorage.getItem("dingzi-theme")||"auto", !forced);
+</script>
+</body>
+</html>

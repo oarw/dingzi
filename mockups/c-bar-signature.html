@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dingzi 钉子 · 方案 C 色带签名</title>
+</head>
+<body>
+<!--
+THESIS: Each machine wears a colour signature you learn by shape, not by
+reading. Oversized saturated bars carry every saturation metric; type stays
+small and businesslike underneath. Refuses the equal-weight table and the
+donut-chart card alike.
+OWN-WORLD: Cool grey ground, four saturated bar roles (cyan CPU, magenta
+memory, yellow swap, green disk) multiplying where they overlap. Neutral
+grotesque set small; numerals ride on their own bars. Offline scatters to grey.
+STORY: The operator recognises a machine's normal silhouette, so an abnormal
+one is visible before any number is read.
+FIRST VIEWPORT: Fleet tally in bar form, then a grid of machine cards, each a
+stack of four full-width metric bars over a quiet spec line.
+FORM: Studio Dumbar modular identity (dealt challenger, competitive), fused;
+seed f4ae58b6.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+-->
+<style>
+:root{
+  --bg:#d9d9d6; --card:#f2f2f0; --card-lo:#e6e6e3; --track:#c9c9c5;
+  --ink:#111; --ink-dim:#5f6165; --edge:rgba(0,0,0,.13);
+  --cpu:#00b4d8; --mem:#e5007d; --swp:#f2c200; --dsk:#3faa3f;
+  --bad:#e5252a; --dead:#a8a8a4;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root[data-theme=auto]{
+    --bg:#111214; --card:#1c1e21; --card-lo:#171a1c; --track:#2b2e33;
+    --ink:#f0f0ee; --ink-dim:#8b9097; --edge:rgba(255,255,255,.10);
+    --cpu:#22d3ee; --mem:#ff2d9b; --swp:#ffd21f; --dsk:#4ade80;
+    --bad:#ff453a; --dead:#4a4e54;
+  }
+}
+:root[data-theme=dark]{
+  --bg:#111214; --card:#1c1e21; --card-lo:#171a1c; --track:#2b2e33;
+  --ink:#f0f0ee; --ink-dim:#8b9097; --edge:rgba(255,255,255,.10);
+  --cpu:#22d3ee; --mem:#ff2d9b; --swp:#ffd21f; --dsk:#4ade80;
+  --bad:#ff453a; --dead:#4a4e54;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;
+  line-height:1.4;padding:24px 20px 56px;min-height:100vh;font-variant-numeric:tabular-nums}
+.wrap{max-width:1560px;margin:0 auto}
+/* ---- masthead: the tally is itself a bar -------------------------------- */
+.top{display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;margin-bottom:20px}
+.mk{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1}
+.mk small{display:block;font-family:var(--mono);font-size:10px;font-weight:400;
+  letter-spacing:.22em;text-transform:uppercase;color:var(--ink-dim);margin-top:7px}
+.tallybar{flex:1;min-width:260px;display:flex;height:34px;border-radius:2px;overflow:hidden}
+.tallybar div{display:flex;align-items:center;padding:0 11px;font-family:var(--mono);
+  font-size:12px;font-weight:700;letter-spacing:.06em;color:#000;white-space:nowrap}
+.tallybar .on{background:var(--dsk)}
+.tallybar .wn{background:var(--bad);color:#fff}
+.tallybar .of{background:var(--dead)}
+.themer{display:flex;border:1px solid var(--edge);border-radius:2px;overflow:hidden}
+.themer button{font:inherit;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  padding:6px 10px;background:transparent;color:var(--ink-dim);border:0;cursor:pointer}
+.themer button[aria-pressed=true]{background:var(--ink);color:var(--bg);font-weight:700}
+.themer button:focus-visible{outline:2px solid var(--cpu);outline-offset:-2px}
+
+.grid{display:grid;gap:13px;grid-template-columns:repeat(auto-fill,minmax(426px,1fr))}
+@media (max-width:920px){.grid{grid-template-columns:1fr}}
+
+/* ---- machine card ------------------------------------------------------- */
+.mc{background:var(--card);border-radius:3px;padding:13px 15px 14px;position:relative;
+  border:1px solid var(--edge)}
+.mc.off{background:var(--card-lo)}
+/* Scattered module marks — the identity system's confetti, snapped to a grid,
+   used here only to mark a dead machine. Pattern, not colour alone. */
+.mc.off::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:3px;
+  background-image:radial-gradient(var(--dead) 1.4px,transparent 1.4px);
+  background-size:9px 9px;opacity:.5}
+.hd{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+.nm{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.pill{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.13em;
+  padding:3px 7px;border-radius:2px;text-transform:uppercase}
+.pill.w{background:var(--bad);color:#fff}
+.pill.o{background:var(--dead);color:var(--card)}
+.sp{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-dim);
+  text-align:right;line-height:1.5;letter-spacing:.02em}
+
+/* ---- the signature: four oversized bars, multiply on overlap ------------ */
+.sig{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
+.bar{position:relative;height:30px;background:var(--track);border-radius:1px;overflow:hidden}
+/* scaleX, not width: a 50-machine fleet is 200 bars, and animating width would
+   put every one of them through layout on each update. The fill is full width
+   and scaled from its left edge, so the transform composites.
+   No blend mode. The source grammar multiplies because its bars overlap and the
+   overlap produces the secondary colours; these bars sit in separate rows and
+   never overlap, so blending only desaturated the palette — screen turned the
+   full-strength primaries into pastels on dark. Borrowing the effect without the
+   condition that earned it is a costume, not the system. */
+.fill{position:absolute;inset:0 auto 0 0;width:100%;
+  transform-origin:left center;
+  transition:transform .5s cubic-bezier(.2,.7,.2,1)}
+@media (prefers-reduced-motion:reduce){.fill{transition:none}}
+.f-cpu{background:var(--cpu)}.f-mem{background:var(--mem)}
+.f-swp{background:var(--swp)}.f-dsk{background:var(--dsk)}
+.bar.over .fill{background:var(--bad)}
+/* Labels live in a fixed gutter left of the bar, not on it. mix-blend-mode
+   difference against four saturated fills produced text that vanished at some
+   values and not others — legibility cannot depend on the datum. The gutter
+   also gives the four bars a shared left edge, which is what makes a machine's
+   signature comparable to its neighbour's. */
+.row{display:grid;grid-template-columns:46px 1fr;align-items:center;gap:9px}
+.bl{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-dim);text-align:right}
+.bv{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-family:var(--mono);
+  font-size:15px;font-weight:700;color:var(--ink);z-index:2}
+.bar.dead .bv{color:var(--ink-dim)}
+/* Threshold tick at 90 — a named step, not a gradient. Solid enough to see. */
+.tick{position:absolute;top:0;bottom:0;left:90%;width:1px;background:var(--ink);
+  opacity:.5;z-index:1}
+
+/* ---- quiet facts underneath -------------------------------------------- */
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px;
+  padding-top:11px;border-top:1px solid var(--edge)}
+.fx{display:flex;align-items:baseline;gap:7px;min-width:0}
+.fk{font-family:var(--mono);font-size:9px;letter-spacing:.17em;text-transform:uppercase;
+  color:var(--ink-dim);flex:none}
+.fv{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.01em}
+.fv.k{color:var(--ink-dim);font-weight:400}
+.fv i{font-style:normal;color:var(--ink-dim);font-weight:400}
+.w2{grid-column:1/-1}
+/* Quota as a slim bar with a hard limit stop. */
+.qb{position:relative;height:9px;background:var(--track);border-radius:1px;
+  overflow:hidden;margin-top:5px;flex:1}
+.qf{position:absolute;inset:0 auto 0 0;width:100%;background:var(--dsk);
+  transform-origin:left center}
+.qf.c{background:var(--swp)}.qf.b{background:var(--bad)}
+.foot{max-width:1560px;margin:22px auto 0;padding-top:14px;border-top:1px solid var(--edge);
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--ink-dim);
+  display:flex;gap:12px 22px;flex-wrap:wrap;align-items:center}
+.foot b{color:var(--ink);font-weight:700}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+
+/* ---- phone --------------------------------------------------------------
+   Must come last: these override .facts and .row, and at equal specificity the
+   cascade is decided by source order. Placed above them, the query matched and
+   .facts stayed two-up. */
+@media (max-width:560px){
+  body{padding:16px 12px 44px}
+  .top{gap:12px}
+  .mk{font-size:21px}
+  /* flex-basis, not width: width:100% on a flex item still lets it shrink, so
+     the bar shared a line with the theme buttons and clipped its last segment —
+     which is where the offline count lives, the one number that must never be
+     the one that gets cut. */
+  .tallybar{flex:0 0 100%;min-width:0;order:3;height:29px}
+  .themer{order:2;margin-left:auto}
+  .tallybar div{padding:0 8px;font-size:11px}
+  .facts{grid-template-columns:1fr;gap:6px}
+  .nm{font-size:15px}
+  .sp{font-size:9px}
+  .row{grid-template-columns:38px 1fr;gap:7px}
+  .bar{height:27px}
+  .bv{font-size:14px}
+  .mc{padding:12px 13px 13px}
+  .foot{gap:8px 14px}
+}
+</style>
+<div class="wrap">
+  <div class="top">
+    <div class="mk">Dingzi 钉子<small>机队色带签名</small></div>
+    <div class="tallybar" id="tally"></div>
+    <div class="themer" role="group" aria-label="主题">
+      <button type="button" data-t="auto" aria-pressed="true">自动</button>
+      <button type="button" data-t="light" aria-pressed="false">亮</button>
+      <button type="button" data-t="dark" aria-pressed="false">暗</button>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="foot">
+    <span><i class="sw" style="background:var(--cpu)"></i>CPU</span>
+    <span><i class="sw" style="background:var(--mem)"></i>内存</span>
+    <span><i class="sw" style="background:var(--swp)"></i>交换</span>
+    <span><i class="sw" style="background:var(--dsk)"></i>硬盘</span>
+    <span><b>│</b> 90% 阈值刻线</span>
+    <span><b>网点</b>= 离线</span>
+    <span>示例数据为合成,非真实机队</span>
+  </div>
+</div>
+<script>
+const FLEET=[
+ {n:"tokyo-1", os:"Ubuntu 24.04",a:"amd64",c:"4核8线",cpu:12,mem:38,swp:0, dsk:44,
+  l:[.24,.31,.28],up:"42天",di:1.26e6,uo:3.4e5,ti:2.31e12,to:8.9e11,q:6e12,qm:"sum"},
+ {n:"sfo-web", os:"Debian 12", a:"amd64",c:"8核16线",cpu:67,mem:71,swp:12,dsk:52,
+  l:[1.82,1.64,1.41],up:"17天",di:8.4e6,uo:2.1e6,ti:1.8e13,to:4.2e12,q:2.6e13,qm:"sum"},
+ {n:"fra-db",  os:"AlmaLinux 9",a:"amd64",c:"4核8线",cpu:23,mem:84,swp:38,dsk:91,
+  l:[.91,.88,.79],up:"103天",di:2.2e5,uo:9.5e4,ti:9.4e11,to:3.1e11,q:0,qm:"sum"},
+ {n:"nyc-cache",os:"Ubuntu 24.04",a:"arm64",c:"2核2线",cpu:8,mem:22,swp:0,dsk:31,
+  l:[.11,.09,.12],up:"8天",di:5.4e5,uo:1.8e5,ti:1.2e11,to:4.5e10,q:5.5e11,qm:"out"},
+ {n:"sgp-edge",os:"Ubuntu 24.04",a:"arm64",c:"2核2线",off:1,up:"离线 12 分钟"},
+ {n:"lon-mail",os:"Debian 12",a:"amd64",c:"2核4线",cpu:31,mem:57,swp:4,dsk:68,
+  l:[.42,.38,.35],up:"61天",di:9.1e5,uo:1.4e6,ti:6.2e11,to:7.7e11,q:8.4e11,qm:"max"}];
+const WARN=90,CAUT=70;
+function human(b){const u=["B","K","M","G","T","P"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}
+  return (b<10&&i>0?b.toFixed(1):Math.round(b))+u[i]}
+function bar(k,cls,v,off){
+  if(off)return '<div class="row"><span class="bl">'+k+'</span>'+
+    '<div class="bar dead"><span class="bv">——</span></div></div>';
+  return '<div class="row"><span class="bl">'+k+'</span>'+
+    '<div class="bar'+(v>=WARN?" over":"")+'"><div class="fill f-'+cls+
+    '" style="transform:scaleX('+(v/100)+')"></div><span class="tick"></span>'+
+    '<span class="bv">'+v+'%</span></div></div>'}
+function quota(m){
+  if(!m.q)return '<div class="fx w2"><span class="fk">流量</span><span class="fv">↓'+
+    human(m.ti)+' <i>↑</i>'+human(m.to)+'</span><span class="fv k">未设配额</span></div>';
+  const u=m.qm==="out"?m.to:m.qm==="max"?Math.max(m.ti,m.to):m.ti+m.to;
+  const p=Math.min(100,Math.round(u/m.q*100));
+  // A cap runs on 80/95, not the 70/90 the saturation metrics use.
+  const c=p>=95?"b":p>=80?"c":"";
+  return '<div class="fx w2"><span class="fk">流量</span><span class="fv">↓'+human(m.ti)+
+    ' <i>↑</i>'+human(m.to)+'</span><div class="qb"><div class="qf '+c+
+    '" style="transform:scaleX('+(p/100)+')"></div></div><span class="fv'+(c?"":" k")+'">'+p+
+    '% / '+human(m.q)+'</span></div>'}
+function card(m){
+  const o=!!m.off,hot=!o&&[m.cpu,m.mem,m.swp,m.dsk].some(v=>v>=WARN);
+  return '<article class="mc'+(o?" off":"")+'">'+
+    '<div class="hd"><span class="nm">'+m.n+'</span>'+
+    (o?'<span class="pill o">离线</span>':hot?'<span class="pill w">告警</span>':'')+
+    '<span class="sp">'+m.os+'<br>'+m.a+' · '+m.c+'</span></div>'+
+    '<div class="sig">'+bar("CPU","cpu",m.cpu,o)+bar("内存","mem",m.mem,o)+
+      bar("交换","swp",m.swp,o)+bar("硬盘","dsk",m.dsk,o)+'</div>'+
+    '<div class="facts">'+
+      '<div class="fx"><span class="fk">负载</span><span class="fv'+(o?" k":"")+'">'+
+        (o?"——":m.l.map(x=>x.toFixed(2)).join(" "))+'</span></div>'+
+      '<div class="fx"><span class="fk">在线</span><span class="fv'+(o?" k":"")+'">'+
+        m.up+'</span></div>'+
+      '<div class="fx w2"><span class="fk">网速</span><span class="fv'+(o?" k":"")+'">'+
+        (o?"——":'↓'+human(m.di)+'/s <i>↑</i>'+human(m.uo)+'/s')+'</span></div>'+
+      (o?'<div class="fx w2"><span class="fk">流量</span><span class="fv k">——</span></div>'
+        :quota(m))+
+    '</div></article>'}
+document.getElementById("grid").innerHTML=FLEET.map(card).join("");
+const on=FLEET.filter(m=>!m.off).length,off=FLEET.filter(m=>m.off).length,
+  wn=FLEET.filter(m=>!m.off&&[m.cpu,m.mem,m.swp,m.dsk].some(v=>v>=WARN)).length;
+const tot=FLEET.length;
+document.getElementById("tally").innerHTML=
+  '<div class="on" style="flex:'+(on-wn)+'">'+(on-wn)+' 正常</div>'+
+  (wn?'<div class="wn" style="flex:'+wn+'">'+wn+' 告警</div>':'')+
+  (off?'<div class="of" style="flex:'+off+'">'+off+' 离线</div>':'');
+// Theme: ?theme= wins (deep-linkable, and what screenshots capture), then the
+// stored preference, then follow the OS.
+const html=document.documentElement,btns=[...document.querySelectorAll(".themer button")];
+function setT(t,persist){html.dataset.theme=t;
+  if(persist!==false)localStorage.setItem("dingzi-theme",t);
+  btns.forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.t===t)))}
+btns.forEach(b=>b.onclick=()=>setT(b.dataset.t));
+const forced=new URLSearchParams(location.search).get("theme");
+setT(forced||localStorage.getItem("dingzi-theme")||"auto", !forced);
+</script>
+</body>
+</html>

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dingzi 钉子 · 方案 A 站牌</title>
+</head>
+<body>
+<!--
+THESIS: A fleet panel read the way a departure board is read — from across the
+room, before you decide to care. Refuses the category's rounded-card dashboard
+with a donut chart and a gradient accent.
+OWN-WORLD: Near-black board ground, amber phosphor readouts, every metric in a
+recessed flap module with a visible fold seam. Segmented LED bars whose lit
+count carries the value, so magnitude survives without color. Tabular mono
+figures, tiny tracked silkscreen caps.
+STORY: The operator sees which blocks are amber and which flipped to red, and
+knows the fleet's state without reading a number.
+FIRST VIEWPORT: Board header with live clock and fleet tally; beneath it a grid
+of machine blocks, each a destination row with ten fields in fixed positions.
+FORM: Transit departure board / split-flap, candidate 6 of 7, seed f4ae58b6.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+-->
+<style>
+/* ---- tokens: the board in its two lights -------------------------------- */
+:root{
+  --ground:#08090b; --board:#13161b; --board-lo:#0e1116; --well:#080a0d;
+  --seam:#000; --edge:rgba(255,255,255,.07);
+  --ink:#e9e7e2; --ink-dim:#8a8780;
+  --amber:#ffb000; --amber-dim:#6d5622; --amber-glow:rgba(255,176,0,.30);
+  --caution:#ffd400; --caution-dim:#6d5c11;
+  --warn:#ff4133; --warn-dim:#6d201b;
+  --ok:#3ad17c;
+  --hatch:rgba(255,255,255,.045);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --r:3px;
+}
+/* Light is the printed timetable, not a washed-out board. Cool paper, not cream. */
+@media (prefers-color-scheme:light){
+  :root[data-theme=auto]{
+    --ground:#ececeb; --board:#f7f7f6; --board-lo:#f0f0ee; --well:#e2e2df;
+    --seam:rgba(0,0,0,.16); --edge:rgba(0,0,0,.10);
+    --ink:#15171a; --ink-dim:#6a6d72;
+    --amber:#9a5b00; --amber-dim:#d8c9b2; --amber-glow:rgba(154,91,0,.14);
+    --caution:#8a6a00; --caution-dim:#ddd3ae;
+    --warn:#bf2118; --warn-dim:#e8c6c2;
+    --ok:#1d7a45; --hatch:rgba(0,0,0,.05);
+  }
+}
+:root[data-theme=light]{
+  --ground:#ececeb; --board:#f7f7f6; --board-lo:#f0f0ee; --well:#e2e2df;
+  --seam:rgba(0,0,0,.16); --edge:rgba(0,0,0,.10);
+  --ink:#15171a; --ink-dim:#6a6d72;
+  --amber:#9a5b00; --amber-dim:#d8c9b2; --amber-glow:rgba(154,91,0,.14);
+  --caution:#8a6a00; --caution-dim:#ddd3ae;
+  --warn:#bf2118; --warn-dim:#e8c6c2;
+  --ok:#1d7a45; --hatch:rgba(0,0,0,.05);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:var(--sans); font-size:14px; line-height:1.4;
+  padding:22px 20px 56px; min-height:100vh;
+  font-variant-numeric:tabular-nums;
+}
+/* ---- board header ------------------------------------------------------- */
+.board{max-width:1560px;margin:0 auto}
+.masthead{
+  display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
+  padding:0 2px 14px;border-bottom:1px solid var(--edge);margin-bottom:18px;
+}
+/* No glow on the wordmark: a split-flap board's lettering is printed on
+   physical flaps and does not emit light. The lamps below do glow, because they
+   are LEDs. */
+.wordmark{
+  font-family:var(--mono);font-size:19px;font-weight:700;letter-spacing:.30em;
+  text-transform:uppercase;color:var(--amber);
+}
+.wordmark small{
+  display:block;font-size:9px;letter-spacing:.34em;color:var(--ink-dim);
+  margin-top:5px;font-weight:400;text-shadow:none;
+}
+.tally{display:flex;gap:20px;margin-left:auto;align-items:center;flex-wrap:wrap}
+.tally b{font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:.02em}
+.tally i{
+  font-style:normal;font-size:9px;letter-spacing:.20em;text-transform:uppercase;
+  color:var(--ink-dim);margin-left:6px;
+}
+.t-on b{color:var(--ok)} .t-warn b{color:var(--warn)} .t-off b{color:var(--ink-dim)}
+/* The now-marker: donated by the drum-machine step row. A board nobody can date
+   is a board that lies when the feed dies, so the clock ticks in the masthead. */
+.clock{
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--ink-dim);
+  display:flex;align-items:center;gap:8px;
+}
+.clock .beat{
+  width:6px;height:6px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 8px var(--ok);animation:beat 2s steps(1,end) infinite;
+}
+@keyframes beat{0%,49%{opacity:1}50%,100%{opacity:.18}}
+.themer{display:flex;border:1px solid var(--edge);border-radius:var(--r);overflow:hidden}
+.themer button{
+  font:inherit;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  padding:5px 9px;background:transparent;color:var(--ink-dim);border:0;cursor:pointer;
+}
+.themer button[aria-pressed=true]{background:var(--amber);color:var(--ground);font-weight:700}
+.themer button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+
+/* ---- the grid: integer-scale, donated by the CRT challenger -------------
+   Fewer blocks at full size beats many blocks shrunk to mush. */
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(438px,1fr))}
+@media (max-width:940px){.grid{grid-template-columns:1fr}}
+
+/* ---- machine block ------------------------------------------------------ */
+.mc{
+  background:linear-gradient(180deg,var(--board) 0%,var(--board-lo) 100%);
+  border:1px solid var(--edge);border-radius:var(--r);
+  padding:0 0 12px;position:relative;overflow:hidden;
+}
+.mc.is-off{background:var(--board-lo)}
+/* Hazard hatch for offline — donated by the streetwear challenger. State as
+   pattern, never color alone. */
+.mc.is-off::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(45deg,transparent 0 7px,var(--hatch) 7px 14px);
+}
+.mc-head{
+  display:flex;align-items:center;gap:10px;
+  padding:11px 14px 10px;border-bottom:1px solid var(--edge);
+  background:rgba(0,0,0,.16);
+}
+:root[data-theme=light] .mc-head{background:rgba(0,0,0,.03)}
+@media (prefers-color-scheme:light){:root[data-theme=auto] .mc-head{background:rgba(0,0,0,.03)}}
+.lamp{width:9px;height:9px;border-radius:50%;flex:none;background:var(--ok);box-shadow:0 0 9px var(--ok)}
+.lamp.warn{background:var(--warn);box-shadow:0 0 9px var(--warn)}
+.lamp.off{background:var(--well);box-shadow:inset 0 0 0 1px var(--edge)}
+.mc-name{
+  font-family:var(--mono);font-size:16px;font-weight:600;letter-spacing:.05em;color:var(--ink);
+}
+/* Text marker beside the lamp: colorblind and across-the-room safe. */
+.mc-flag{
+  font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+  padding:2px 6px;border-radius:2px;font-weight:700;
+}
+.mc-flag.warn{background:var(--warn);color:#fff}
+.mc-flag.off{background:var(--well);color:var(--ink-dim);box-shadow:inset 0 0 0 1px var(--edge)}
+.mc-spec{
+  margin-left:auto;text-align:right;font-family:var(--mono);font-size:10px;
+  letter-spacing:.05em;color:var(--ink-dim);line-height:1.5;
+}
+
+/* ---- flap modules ------------------------------------------------------- */
+.mods{padding:12px 14px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+.mod{min-width:0}
+.mod-k{
+  font-family:var(--mono);font-size:9px;letter-spacing:.20em;text-transform:uppercase;
+  color:var(--ink-dim);margin-bottom:4px;
+}
+/* The flap: a recessed well with a fold seam across its middle. */
+.flap{
+  position:relative;background:var(--well);border-radius:2px;
+  box-shadow:inset 0 0 0 1px var(--edge);
+  padding:5px 8px;display:flex;align-items:baseline;gap:7px;
+  transform-origin:50% 50%;backface-visibility:hidden;
+}
+.flap::after{
+  content:"";position:absolute;left:0;right:0;top:50%;height:1px;
+  background:var(--seam);opacity:.85;pointer-events:none;
+}
+.flap.flipping{animation:flip .19s ease-out}
+@keyframes flip{
+  0%{transform:perspective(220px) rotateX(-84deg);filter:brightness(1.5)}
+  100%{transform:perspective(220px) rotateX(0);filter:brightness(1)}
+}
+@media (prefers-reduced-motion:reduce){
+  .flap.flipping{animation:none}
+  .clock .beat{animation:none}
+}
+.num{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--amber);letter-spacing:.02em}
+.num.caution{color:var(--caution)} .num.warn{color:var(--warn)}
+.num.dead,.num.zero{color:var(--ink-dim)}
+.sub{font-family:var(--mono);font-size:10px;color:var(--ink-dim);margin-left:auto;white-space:nowrap}
+
+/* ---- segmented bar: lit-segment COUNT carries the value ------------------
+   Discrete bands donated by the cyclorama challenger — named steps, never a
+   continuous ramp, so magnitude reads without relying on hue. */
+.segs{display:flex;gap:2px;margin-top:5px;height:7px}
+.seg{flex:1;background:var(--amber-dim);border-radius:1px;opacity:.32}
+.seg.on{opacity:1;background:var(--amber)}
+.seg.on.caution{background:var(--caution)}
+.seg.on.warn{background:var(--warn)}
+.mc.is-off .seg{background:var(--ink-dim);opacity:.13}
+
+/* ---- wide modules ------------------------------------------------------- */
+.wide{grid-column:1/-1}
+.rate{display:flex;gap:16px;font-family:var(--mono);font-size:13px}
+.rate span{color:var(--amber)}
+.rate span i{font-style:normal;color:var(--ink-dim);font-size:11px;margin-right:3px}
+.mc.is-off .rate span{color:var(--ink-dim)}
+/* Quota: the bar is already scaled to the cap, so a tick at the right edge
+   would restate the obvious. It marks the 80% caution line instead — the point
+   where an operator still has time to act. */
+.quota{position:relative;margin-top:5px}
+.limit{
+  position:absolute;top:-3px;bottom:-3px;left:80%;width:2px;background:var(--ink);
+  opacity:.5;
+}
+.load{display:flex;gap:9px;font-family:var(--mono);font-size:13px;color:var(--amber)}
+.load em{font-style:normal;color:var(--ink-dim)}
+.mc.is-off .load{color:var(--ink-dim)}
+.note{
+  font-family:var(--mono);font-size:10px;color:var(--ink-dim);letter-spacing:.04em;
+  padding:9px 14px 0;margin-top:2px;
+}
+.legend{
+  max-width:1560px;margin:26px auto 0;padding-top:14px;border-top:1px solid var(--edge);
+  font-family:var(--mono);font-size:10px;letter-spacing:.10em;color:var(--ink-dim);
+  display:flex;gap:22px;flex-wrap:wrap;
+}
+.legend b{color:var(--ink);font-weight:600}
+
+/* ---- phone --------------------------------------------------------------
+   Must come last: these override .mods and .tally, and at equal specificity
+   the cascade is decided by source order. Placed above them, the query matched
+   and changed nothing. */
+@media (max-width:560px){
+  body{padding:16px 13px 44px}
+  .mods{grid-template-columns:1fr;gap:9px 0}
+  .masthead{gap:11px;padding-bottom:12px}
+  .tally{margin-left:0;width:100%;gap:13px}
+  .tally b{font-size:15px}
+  .wordmark{font-size:16px}
+  .wordmark small{font-size:8px}
+  .mc-name{font-size:15px}
+  .mc-spec{font-size:9px}
+  .mc-head{padding:10px 12px 9px}
+  .mods{padding:11px 12px 0}
+  .num{font-size:14px}
+  .legend{gap:7px 16px}
+}
+</style>
+<div class="board">
+  <header class="masthead">
+    <div class="wordmark">DINGZI<small>钉子 · 机队状态板</small></div>
+    <div class="tally">
+      <span class="t-on"><b id="n-on">0</b><i>在线</i></span>
+      <span class="t-warn"><b id="n-warn">0</b><i>告警</i></span>
+      <span class="t-off"><b id="n-off">0</b><i>离线</i></span>
+      <span class="clock"><span class="beat" aria-hidden="true"></span><span id="clk">--:--:--</span></span>
+      <div class="themer" role="group" aria-label="主题">
+        <button type="button" data-t="auto" aria-pressed="true">自动</button>
+        <button type="button" data-t="light" aria-pressed="false">亮</button>
+        <button type="button" data-t="dark" aria-pressed="false">暗</button>
+      </div>
+    </div>
+  </header>
+  <div class="grid" id="grid"></div>
+  <div class="legend">
+    <span><b>亮起段数</b>= 数值,不靠颜色</span>
+    <span><b>斜纹</b>= 离线</span>
+    <span><b>│</b>= 流量配额上限</span>
+    <span>阈值 <b>&lt;70 正常 · 70–89 注意 · ≥90 告警</b></span>
+    <span>示例数据为合成,非真实机队</span>
+  </div>
+</div>
+<script>
+// Synthetic fleet. PRODUCT.md: no real data exists; nothing here implies any.
+const FLEET=[
+ {n:"tokyo-1", os:"Ubuntu 24.04",a:"amd64",c:"4核8线",cpu:12,mem:38,swp:0, dsk:44,
+  l:[.24,.31,.28],up:"42天",di:1.26e6,uo:3.4e5,ti:2.31e12,to:8.9e11,q:6e12,qm:"sum"},
+ {n:"sfo-web", os:"Debian 12", a:"amd64",c:"8核16线",cpu:67,mem:71,swp:12,dsk:52,
+  l:[1.82,1.64,1.41],up:"17天",di:8.4e6,uo:2.1e6,ti:1.8e13,to:4.2e12,q:2.6e13,qm:"sum"},
+ {n:"fra-db",  os:"AlmaLinux 9",a:"amd64",c:"4核8线",cpu:23,mem:84,swp:38,dsk:91,
+  l:[.91,.88,.79],up:"103天",di:2.2e5,uo:9.5e4,ti:9.4e11,to:3.1e11,q:0,qm:"sum"},
+ {n:"nyc-cache",os:"Ubuntu 24.04",a:"arm64",c:"2核2线",cpu:8,mem:22,swp:0,dsk:31,
+  l:[.11,.09,.12],up:"8天",di:5.4e5,uo:1.8e5,ti:1.2e11,to:4.5e10,q:5.5e11,qm:"out"},
+ {n:"sgp-edge",os:"Ubuntu 24.04",a:"arm64",c:"2核2线",off:1,up:"离线 12 分钟"},
+ {n:"lon-mail",os:"Debian 12",a:"amd64",c:"2核4线",cpu:31,mem:57,swp:4,dsk:68,
+  l:[.42,.38,.35],up:"61天",di:9.1e5,uo:1.4e6,ti:6.2e11,to:7.7e11,q:8.4e11,qm:"max"}];
+// Saturation metrics warn at 70/90. Quota runs on its own 80/95 pair: a disk at
+// 80% is worth a glance, a bandwidth cap at 80% is worth acting on.
+const T={caution:70,warn:90};
+function band(v){return v>=T.warn?"warn":v>=T.caution?"caution":""}
+function qband(v){return v>=95?"warn":v>=80?"caution":""}
+function human(b){const u=["B","K","M","G","T","P"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}
+  return (b<10&&i>0?b.toFixed(1):Math.round(b))+u[i]}
+function segs(v,cls){let h='<div class="segs" aria-hidden="true">',on=Math.round(v/5);
+  for(let i=0;i<20;i++)h+='<div class="seg'+(i<on?" on "+cls:"")+'"></div>';return h+"</div>"}
+function mod(k,v,extra,cls){return '<div class="mod"><div class="mod-k">'+k+'</div>'+
+  '<div class="flap"><span class="num '+(cls||"")+'">'+v+'</span>'+(extra||"")+'</div>'+
+  (cls===undefined?"":"")+'</div>'}
+function pct(k,v,off){if(off)return '<div class="mod"><div class="mod-k">'+k+
+  '</div><div class="flap"><span class="num dead">——</span></div>'+segs(0,"")+'</div>';
+  // A zero reads quiet: lighting it the same amber as a live value makes an
+  // idle swap partition look like activity.
+  const c=band(v), tone=v===0?"zero":c;
+  return '<div class="mod"><div class="mod-k">'+k+'</div>'+
+  '<div class="flap"><span class="num '+tone+'">'+v+'%</span>'+
+  (c?'<span class="sub">'+(c==="warn"?"告警":"注意")+'</span>':'')+'</div>'+segs(v,c)+'</div>'}
+function quota(m){
+  if(!m.q)return '<div class="mod wide"><div class="mod-k">流量 ↓/↑</div><div class="flap">'+
+    '<span class="num">'+human(m.ti)+' / '+human(m.to)+'</span>'+
+    '<span class="sub">未设配额</span></div></div>';
+  const used=m.qm==="out"?m.to:m.qm==="max"?Math.max(m.ti,m.to):m.ti+m.to;
+  const p=Math.min(100,Math.round(used/m.q*100)),c=qband(p);
+  return '<div class="mod wide"><div class="mod-k">流量 ↓/↑ · 配额 '+human(m.q)+
+    ' ('+m.qm+')</div><div class="flap"><span class="num '+c+'">'+human(m.ti)+' / '+human(m.to)+
+    '</span><span class="sub">'+p+'% 已用</span></div>'+
+    '<div class="quota">'+segs(p,c)+'<span class="limit"></span></div></div>'}
+function card(m){
+  const o=!!m.off, hot=!o&&[m.cpu,m.mem,m.swp,m.dsk].some(v=>v>=T.warn);
+  const lamp=o?"off":hot?"warn":"", flag=o?'<span class="mc-flag off">离线</span>':
+    hot?'<span class="mc-flag warn">告警</span>':'';
+  return '<article class="mc'+(o?" is-off":"")+'">'+
+    '<div class="mc-head"><span class="lamp '+lamp+'" aria-hidden="true"></span>'+
+    '<span class="mc-name">'+m.n+'</span>'+flag+
+    '<span class="mc-spec">'+m.os+'<br>'+m.a+' · '+m.c+'</span></div>'+
+    '<div class="mods">'+
+      pct("CPU",m.cpu,o)+pct("内存",m.mem,o)+pct("交换",m.swp,o)+pct("硬盘",m.dsk,o)+
+      '<div class="mod"><div class="mod-k">负载 1/5/15</div><div class="flap">'+
+        (o?'<span class="num dead">——</span>':'<span class="load">'+
+        m.l.map(x=>x.toFixed(2)).join('<em>/</em>')+'</span>')+'</div></div>'+
+      '<div class="mod"><div class="mod-k">在线时长</div><div class="flap">'+
+        '<span class="num'+(o?" dead":"")+'" style="font-size:13px">'+m.up+'</span></div></div>'+
+      '<div class="mod wide"><div class="mod-k">网速 ↓/↑</div><div class="flap">'+
+        (o?'<span class="num dead">——</span>':'<span class="rate">'+
+        '<span><i>↓</i>'+human(m.di)+'/s</span><span><i>↑</i>'+human(m.uo)+'/s</span></span>')+
+        '</div></div>'+
+      (o?'<div class="mod wide"><div class="mod-k">流量 ↓/↑</div><div class="flap">'+
+        '<span class="num dead">——</span></div></div>':quota(m))+
+    '</div></article>'}
+const grid=document.getElementById("grid");
+grid.innerHTML=FLEET.map(card).join("");
+document.getElementById("n-on").textContent=FLEET.filter(m=>!m.off).length;
+document.getElementById("n-off").textContent=FLEET.filter(m=>m.off).length;
+document.getElementById("n-warn").textContent=FLEET.filter(m=>!m.off&&
+  [m.cpu,m.mem,m.swp,m.dsk].some(v=>v>=T.warn)).length;
+// ?still=1 freezes the clock and the flaps so a screenshot is deterministic.
+const STILL=new URLSearchParams(location.search).has("still");
+function tick(){const d=new Date();document.getElementById("clk").textContent=
+  [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,"0")).join(":")}
+if(STILL){document.getElementById("clk").textContent="14:32:07"}
+else{
+  // The now-marker ticks so a dead feed cannot masquerade as fresh data.
+  tick();setInterval(tick,1000);
+  // Flap on change: the board's native motion, once per value, clock-locked.
+  setInterval(()=>{const f=grid.querySelectorAll(".flap");
+    const t=f[Math.floor(Math.random()*f.length)];if(!t)return;
+    t.classList.add("flipping");setTimeout(()=>t.classList.remove("flipping"),200)},1400);
+}
+// Theme: ?theme= wins (deep-linkable, and what screenshots capture), then the
+// stored preference, then follow the OS.
+const Q=new URLSearchParams(location.search);
+const html=document.documentElement, btns=[...document.querySelectorAll(".themer button")];
+function setT(t,persist){html.dataset.theme=t;
+  if(persist!==false)localStorage.setItem("dingzi-theme",t);
+  btns.forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.t===t)))}
+btns.forEach(b=>b.onclick=()=>setT(b.dataset.t));
+const forced=Q.get("theme");
+setT(forced||localStorage.getItem("dingzi-theme")||"auto", !forced);
+</script>
+</body>
+</html>

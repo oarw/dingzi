@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dingzi 钉子 · 三个方案</title>
+<style>
+:root{--bg:#111214;--card:#1c1e21;--ink:#f0f0ee;--dim:#8b9097;--edge:rgba(255,255,255,.12);
+--acc:#ffb000;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC",sans-serif;
+--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media(prefers-color-scheme:light){:root{--bg:#ececeb;--card:#f7f7f6;--ink:#15171a;
+--dim:#6a6d72;--edge:rgba(0,0,0,.12);--acc:#9a5b00}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);padding:40px 24px 60px;
+line-height:1.55}
+.w{max-width:920px;margin:0 auto}
+h1{font-size:26px;letter-spacing:-.01em;margin-bottom:6px}
+.sub{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+color:var(--dim);margin-bottom:32px}
+a.card{display:block;background:var(--card);border:1px solid var(--edge);border-radius:4px;
+padding:20px 22px;margin-bottom:14px;text-decoration:none;color:inherit}
+a.card:hover{border-color:var(--acc)}
+a.card:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.k{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+color:var(--acc);margin-bottom:7px}
+h2{font-size:19px;margin-bottom:7px}
+p{font-size:14px;color:var(--dim)}
+p.risk{margin-top:9px;font-size:13px}
+p.risk b{color:var(--ink);font-weight:600}
+.note{margin-top:26px;padding-top:18px;border-top:1px solid var(--edge);font-size:13px;
+color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="w">
+  <h1>Dingzi 钉子 · 三个方案</h1>
+  <div class="sub">种子 f4ae58b6 · Operate 模式 · 示例数据均为合成</div>
+
+  <a class="card" href="a-station-board.html">
+    <div class="k">方案 A · 掷出的方向</div>
+    <h2>站牌 Station Board</h2>
+    <p>车站翻牌屏。近黑底 + 琥珀读数,每个指标是一个带折缝的翻牌模块。分段 LED 条用<b>亮起段数</b>表达数值,不依赖颜色。为「隔着房间看一眼」而生。</p>
+    <p class="risk"><b>风险:</b>琥珀单色需要靠版式而非色彩建立层级,做不好会显得平。</p>
+  </a>
+
+  <a class="card" href="b-rack-panel.html">
+    <div class="k">方案 B · 我的首选</div>
+    <h2>机架面板 Rack Panel</h2>
+    <p>把机队当成它物理上的样子:每台机器一个 1U 面板,拉丝铝面 + 丝印标签 + 沉孔指示灯。灯位固定,<b>位置本身就是指标</b>。</p>
+    <p class="risk"><b>风险:</b>这也是称职的运维工具通常长的样子——熟悉、好用,但不会让人记住。这个取舍由你定。</p>
+  </a>
+
+  <a class="card" href="c-bar-signature.html">
+    <div class="k">方案 C · 挑战者(单项胜出)</div>
+    <h2>色带签名 Bar Signature</h2>
+    <p>四条饱和色带承载全部饱和度指标,字号压到最小垫在下面。你会记住每台机器<b>正常时的色带形状</b>,于是异常在读数之前就已经看见了。</p>
+    <p class="risk"><b>风险:</b>四种饱和色同屏,机器多了可能显得吵;需要靠留白和排序压住。</p>
+  </a>
+
+  <div class="note">三个方案都包含你点名的 10 个字段,都支持深浅主题(跟随系统 + 手动覆盖),都无 CDN 依赖、无构建步骤。</div>
+</div>
+</body>
+</html>
