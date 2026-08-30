@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Dingzi 钉子</title>
+</head>
+<body>
+<!--
+THESIS: A fleet panel read the way a departure board is read — from across the
+room, before you decide to care. Refuses the category's rounded-card dashboard
+with a donut chart and a gradient accent.
+OWN-WORLD: Near-black board ground, amber readouts in recessed wells. Segmented
+LED bars whose lit count carries the value, so magnitude survives without
+colour. A board marks an exception loudly: a machine in trouble takes a filled
+status band across its header, the way a cancelled service does. Light theme is
+the printed timetable — black ink on paper, colour reserved for exceptions.
+STORY: The operator sees which headers are banded and knows the fleet's state
+without reading a number.
+FIRST VIEWPORT: Board header with live clock and fleet tally; beneath it a grid
+of machine blocks, four saturation metrics loud, static facts quiet.
+FORM: Transit departure board, candidate 6 of 7, seed f4ae58b6. Chosen by the
+author over the rack panel and the bar signature.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+-->
+<style>
+/* ---- tokens -------------------------------------------------------------
+   Dark is the board itself. Light is not a washed-out board: it is the printed
+   timetable, where normal entries are black ink and only exceptions take
+   colour. That inversion is what fixes the light theme's contrast — the old
+   amber-on-paper readouts sat at 4.18:1, under the 4.5:1 floor. */
+:root{
+  --ground:#08090b; --board:#13161b; --board-lo:#0e1116; --well:#080a0d;
+  --edge:rgba(255,255,255,.07);
+  --ink:#e9e7e2; --ink-dim:#8a8780;
+  --val:#ffb000;              /* normal readout */
+  --caution:#ffd400; --warn:#ff4133; --ok:#3ad17c;
+  --band:#ff4133;             /* header band on an in-trouble machine */
+  /* Ink on the band is the board's own ground, not white: white on this red is
+     3.47:1, and darkening the band to fix that would cost it the loudness that
+     makes it the anchor. Dark-on-bright is what warning signage does anyway, and
+     it reads as punched out of the board. #08090b on #ff4133 = 5.66:1. */
+  --band-ink:#08090b;
+  /* The 告警 tag is a light chip standing off the red band, carrying ink deeper
+     than the band itself: --band on white is only 3.47:1, and this tag is what
+     keeps state off colour alone. #c62519 on #f7f5f2 = 4.9:1. */
+  --flag-bg:#f7f5f2; --flag-ink:#c62519;
+  --lamp-glow:1;              /* LEDs emit on the dark board */
+  --hatch:rgba(255,255,255,.045);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --r:3px;
+}
+/* Light: printed timetable. Measured against --well #e2e2df —
+   ink #1a1d21 15.2:1 · caution #7a4a00 6.0:1 · warn #a8140c 6.1:1 · dim #585c61 5.2:1.
+   All clear 4.5:1. Normal readouts are ink, not amber, so the colour that does
+   appear means something. */
+@media (prefers-color-scheme:light){
+  :root[data-theme=auto]{
+    --ground:#ececeb; --board:#f7f7f6; --board-lo:#f0f0ee; --well:#e2e2df;
+    --edge:rgba(0,0,0,.12);
+    --ink:#15171a; --ink-dim:#585c61;
+    --val:#1a1d21; --caution:#7a4a00; --warn:#a8140c; --ok:#1d7a45;
+    --band:#a8140c; --band-ink:#fff; --flag-bg:#fff; --flag-ink:#8f1109;
+    --lamp-glow:0;            /* printed status dots do not emit light */
+    --hatch:rgba(0,0,0,.055);
+  }
+}
+:root[data-theme=light]{
+  --ground:#ececeb; --board:#f7f7f6; --board-lo:#f0f0ee; --well:#e2e2df;
+  --edge:rgba(0,0,0,.12);
+  --ink:#15171a; --ink-dim:#585c61;
+  --val:#1a1d21; --caution:#7a4a00; --warn:#a8140c; --ok:#1d7a45;
+  --band:#a8140c; --band-ink:#fff; --flag-bg:#fff; --flag-ink:#8f1109;
+  --lamp-glow:0;
+  --hatch:rgba(0,0,0,.055);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:var(--sans); font-size:14px; line-height:1.4;
+  padding:22px 20px 56px; min-height:100vh;
+  font-variant-numeric:tabular-nums;
+}
+/* Browser surfaces belong to the design too — these ship as browser defaults
+   otherwise, which is the cheapest tell that a page was assembled. */
+::selection{background:var(--val);color:var(--ground)}
+:root{caret-color:var(--val);scrollbar-color:var(--edge) transparent;scrollbar-width:thin}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--edge);border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:var(--ink-dim)}
+:focus-visible{outline:2px solid var(--val);outline-offset:2px}
+
+/* ---- board header ------------------------------------------------------- */
+.board{max-width:1560px;margin:0 auto}
+.masthead{
+  display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
+  padding:0 2px 14px;border-bottom:1px solid var(--edge);margin-bottom:18px;
+}
+.wordmark{
+  font-family:var(--mono);font-size:19px;font-weight:700;letter-spacing:.30em;
+  text-transform:uppercase;color:var(--val);
+}
+.wordmark small{
+  display:block;font-size:9px;letter-spacing:.34em;color:var(--ink-dim);
+  margin-top:5px;font-weight:400;
+}
+.tally{display:flex;gap:20px;margin-left:auto;align-items:center;flex-wrap:wrap}
+.tally b{font-family:var(--mono);font-size:17px;font-weight:600}
+.tally i{
+  font-style:normal;font-size:9px;letter-spacing:.20em;text-transform:uppercase;
+  color:var(--ink-dim);margin-left:6px;
+}
+.t-on b{color:var(--ok)} .t-warn b{color:var(--warn)} .t-off b{color:var(--ink-dim)}
+/* Now-marker: a board nobody can date lies when the feed dies. */
+.clock{
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--ink-dim);
+  display:flex;align-items:center;gap:8px;
+}
+.clock .beat{
+  width:6px;height:6px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 calc(8px * var(--lamp-glow)) var(--ok);
+  animation:beat 2s steps(1,end) infinite;
+}
+@keyframes beat{0%,49%{opacity:1}50%,100%{opacity:.18}}
+.themer{display:flex;border:1px solid var(--edge);border-radius:var(--r);overflow:hidden}
+.themer button{
+  font:inherit;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  padding:5px 9px;background:transparent;color:var(--ink-dim);border:0;cursor:pointer;
+}
+.themer button[aria-pressed=true]{background:var(--val);color:var(--ground);font-weight:700}
+
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(430px,1fr))}
+@media (max-width:940px){.grid{grid-template-columns:1fr}}
+
+/* ---- machine block ------------------------------------------------------ */
+.mc{
+  background:linear-gradient(180deg,var(--board) 0%,var(--board-lo) 100%);
+  border:1px solid var(--edge);border-radius:var(--r);
+  padding:0 0 11px;position:relative;overflow:hidden;
+}
+.mc.is-off{background:var(--board-lo)}
+/* Offline hatch — state as pattern, never colour alone. */
+.mc.is-off::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(45deg,transparent 0 7px,var(--hatch) 7px 14px);
+}
+/* THE ANCHOR. A 9px lamp against ten equal wells gave the eye nothing to catch,
+   so a machine in trouble takes a filled band across its whole header — what a
+   board does to a cancelled service. This is the card-level signal that makes
+   the fleet readable without reading a number. */
+.mc-head{
+  display:flex;align-items:center;gap:10px;
+  padding:11px 14px 10px;border-bottom:1px solid var(--edge);
+  background:rgba(0,0,0,.16);
+}
+:root[data-theme=light] .mc-head,
+:root[data-theme=auto] .mc-head{background:rgba(0,0,0,.035)}
+@media (prefers-color-scheme:dark){:root[data-theme=auto] .mc-head{background:rgba(0,0,0,.16)}}
+.mc.is-warn .mc-head{background:var(--band);border-bottom-color:var(--band)}
+.mc.is-warn .mc-name,.mc.is-warn .mc-spec{color:var(--band-ink)}
+/* No opacity on the spec here: fading ink against the band is what pushed it
+   under the contrast floor. It is already quiet by size. */
+.lamp{width:9px;height:9px;border-radius:50%;flex:none;background:var(--ok);
+  box-shadow:0 0 calc(9px * var(--lamp-glow)) var(--ok)}
+.lamp.off{background:var(--well);box-shadow:inset 0 0 0 1px var(--edge)}
+/* On a banded header the lamp reads as a hole punched in the band. A glowing
+   green dot inside a red band would be two conflicting signals. */
+.mc.is-warn .lamp{background:var(--band-ink);box-shadow:none}
+.mc-name{font-family:var(--mono);font-size:16px;font-weight:600;letter-spacing:.05em}
+/* Text marker beside the lamp: colourblind- and distance-safe. */
+.mc-flag{
+  font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+  padding:2px 6px;border-radius:2px;font-weight:700;
+}
+.mc.is-warn .mc-flag{background:var(--flag-bg);color:var(--flag-ink)}
+.mc-flag.off{background:var(--well);color:var(--ink-dim);box-shadow:inset 0 0 0 1px var(--edge)}
+.mc-spec{
+  margin-left:auto;text-align:right;font-family:var(--mono);font-size:10px;
+  color:var(--ink-dim);line-height:1.5;
+}
+
+/* ---- tier 1: the four saturation metrics, loud ---------------------------
+   PRODUCT.md principle 3: unequal information, unequal weight. These four say
+   whether the machine is in trouble, so they get the size and the bars. */
+.sat{padding:12px 14px 0;display:grid;grid-template-columns:1fr 1fr;gap:9px 14px}
+.mod{min-width:0}
+.mod-k{
+  font-family:var(--mono);font-size:9px;letter-spacing:.20em;text-transform:uppercase;
+  color:var(--ink-dim);margin-bottom:4px;
+}
+/* Recessed well. No fold seam: at this size a 1px line across the middle of a
+   numeral reads as a strikethrough, not a hinge. */
+.well{
+  background:var(--well);border-radius:2px;box-shadow:inset 0 0 0 1px var(--edge);
+  padding:5px 8px;display:flex;align-items:baseline;gap:7px;
+  transform-origin:50% 50%;backface-visibility:hidden;
+}
+.well.flipping{animation:flip .19s ease-out}
+@keyframes flip{
+  0%{transform:perspective(220px) rotateX(-84deg);filter:brightness(1.5)}
+  100%{transform:perspective(220px) rotateX(0);filter:brightness(1)}
+}
+@media (prefers-reduced-motion:reduce){
+  .well.flipping{animation:none}
+  .clock .beat{animation:none}
+}
+.num{font-family:var(--mono);font-size:18px;font-weight:600;color:var(--val)}
+.num.caution{color:var(--caution)} .num.warn{color:var(--warn)}
+.num.dead,.num.zero{color:var(--ink-dim)}
+.sub{font-family:var(--mono);font-size:10px;color:var(--ink-dim);margin-left:auto;
+  white-space:nowrap}
+.num.caution+.sub{color:var(--caution)} .num.warn+.sub{color:var(--warn)}
+
+/* Segmented bar: lit-segment COUNT carries the value, so magnitude reads
+   without relying on hue. */
+.segs{display:flex;gap:2px;margin-top:5px;height:7px}
+.seg{flex:1;background:var(--edge);border-radius:1px}
+.seg.on{background:var(--val)}
+.seg.on.caution{background:var(--caution)}
+.seg.on.warn{background:var(--warn)}
+.mc.is-off .seg{background:var(--edge)}
+
+/* ---- tier 2: reference facts, quiet ------------------------------------- */
+.facts{padding:11px 14px 0;margin-top:10px;border-top:1px solid var(--edge);
+  display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
+.fx{display:flex;align-items:baseline;gap:8px;min-width:0}
+.fk{font-family:var(--mono);font-size:9px;letter-spacing:.17em;text-transform:uppercase;
+  color:var(--ink-dim);flex:none}
+.fv{font-family:var(--mono);font-size:13px;color:var(--ink)}
+.fv.k{color:var(--ink-dim)}
+.fv i{font-style:normal;color:var(--ink-dim)}
+.fv em{font-style:normal;color:var(--ink-dim);padding:0 1px}
+.w2{grid-column:1/-1}
+/* Quota: the bar is scaled to the cap, so the tick marks the 80% caution line
+   rather than restating the bar's own end. */
+.quota{position:relative;margin-top:5px}
+.limit{position:absolute;top:-3px;bottom:-3px;left:80%;width:2px;background:var(--ink);
+  opacity:.5}
+.legend{
+  max-width:1560px;margin:26px auto 0;padding-top:14px;border-top:1px solid var(--edge);
+  font-family:var(--mono);font-size:10px;letter-spacing:.10em;color:var(--ink-dim);
+  display:flex;gap:9px 22px;flex-wrap:wrap;
+}
+.legend b{color:var(--ink);font-weight:600}
+
+/* ---- phone --------------------------------------------------------------
+   Last, so these win the cascade over the rules they override.
+   The saturation metrics STAY two-up: collapsing all ten fields to one column
+   cost 612px per machine, which is a ~30,000px scroll at the 50-machine ceiling
+   PRODUCT.md names, on the viewport it calls first-class. */
+@media (max-width:560px){
+  body{padding:16px 12px 44px}
+  .masthead{gap:11px;padding-bottom:12px}
+  .tally{margin-left:0;width:100%;gap:13px}
+  .tally b{font-size:15px}
+  .wordmark{font-size:16px}
+  .wordmark small{font-size:8px}
+  .mc-head{padding:10px 12px 9px}
+  .mc-name{font-size:15px}
+  .mc-spec{font-size:9px}
+  .sat{padding:11px 12px 0;gap:8px 10px}
+  .num{font-size:16px}
+  .facts{padding:10px 12px 0;grid-template-columns:1fr;gap:5px}
+  .legend{gap:7px 16px}
+}
+</style>
+<div class="board">
+  <header class="masthead">
+    <div class="wordmark">DINGZI<small>钉子 · 机队状态板</small></div>
+    <div class="tally">
+      <span class="t-on"><b id="n-on">—</b><i>在线</i></span>
+      <span class="t-warn"><b id="n-warn">—</b><i>告警</i></span>
+      <span class="t-off"><b id="n-off">—</b><i>离线</i></span>
+      <span class="clock"><span class="beat" aria-hidden="true"></span><span id="clk">--:--:--</span></span>
+      <div class="themer" role="group" aria-label="主题">
+        <button type="button" data-t="auto" aria-pressed="true">自动</button>
+        <button type="button" data-t="light" aria-pressed="false">亮</button>
+        <button type="button" data-t="dark" aria-pressed="false">暗</button>
+      </div>
+    </div>
+  </header>
+  <div class="grid" id="grid"></div>
+  <div class="legend">
+    <span><b>亮起段数</b>= 数值,不靠颜色</span>
+    <span><b>整条色带</b>= 该机有指标告警</span>
+    <span><b>斜纹</b>= 离线</span>
+    <span><b>│</b>= 配额 80% 警戒线</span>
+    <span>饱和度 <b>&lt;70 / 70–89 / ≥90</b> · 配额 <b>&lt;80 / 80–94 / ≥95</b></span>
+    <span id="src"></span>
+  </div>
+</div>
+<script>
+"use strict";
+const T={caution:70,warn:90};
+const band=v=>v>=T.warn?"warn":v>=T.caution?"caution":"";
+const qband=v=>v>=95?"warn":v>=80?"caution":"";
+function human(b){const u=["B","K","M","G","T","P"];let i=0;
+  while(b>=1024&&i<u.length-1){b/=1024;i++}
+  return (b<10&&i>0?b.toFixed(1):Math.round(b))+u[i]}
+function dur(s){if(!s)return "—";const d=Math.floor(s/86400);
+  if(d>0)return d+"天";const h=Math.floor(s/3600);
+  if(h>0)return h+"小时";return Math.max(1,Math.floor(s/60))+"分钟"}
+function segs(v,cls){let h='<div class="segs" aria-hidden="true">';
+  const on=Math.round(v/5);
+  for(let i=0;i<20;i++)h+='<div class="seg'+(i<on?" on "+cls:"")+'"></div>';
+  return h+"</div>"}
+// Tier 1: loud. Lit-segment count carries magnitude; the text marker carries
+// caution and warn without relying on hue.
+function sat(k,v,off){
+  if(off)return '<div class="mod"><div class="mod-k">'+k+'</div><div class="well">'+
+    '<span class="num dead">——</span></div>'+segs(0,"")+'</div>';
+  const c=band(v), tone=v===0?"zero":c;
+  return '<div class="mod"><div class="mod-k">'+k+'</div><div class="well">'+
+    '<span class="num '+tone+'">'+v+'%</span>'+
+    (c?'<span class="sub">'+(c==="warn"?"告警":"注意")+'</span>':'')+
+    '</div>'+segs(v,c)+'</div>'}
+function quota(m){
+  const io='<span class="fv"><i>↓</i>'+human(m.net_in_total)+
+    ' <i>↑</i>'+human(m.net_out_total)+'</span>';
+  if(!m.quota_bytes)return '<div class="fx w2"><span class="fk">流量</span>'+io+
+    '<span class="fv k">未设配额</span></div>';
+  const mode=m.quota_mode||"sum";
+  const used=mode==="out"?m.net_out_total:mode==="max"
+    ?Math.max(m.net_in_total,m.net_out_total):m.net_in_total+m.net_out_total;
+  const p=Math.min(100,Math.round(used/m.quota_bytes*100)), c=qband(p);
+  return '<div class="fx w2"><span class="fk">流量</span>'+io+
+    '<span class="fv'+(c?" ":" k")+'">'+p+'% / '+human(m.quota_bytes)+
+    ' ('+mode+')</span></div>'+
+    '<div class="w2 quota">'+segs(p,c)+'<span class="limit"></span></div>'}
+function card(m){
+  const off=!m.online;
+  const hot=!off&&[m.cpu,m.mem,m.swap,m.disk].some(v=>v>=T.warn);
+  return '<article class="mc'+(off?" is-off":"")+(hot?" is-warn":"")+'">'+
+    '<div class="mc-head">'+
+      '<span class="lamp'+(off?" off":"")+'" aria-hidden="true"></span>'+
+      '<span class="mc-name">'+m.name+'</span>'+
+      (off?'<span class="mc-flag off">离线</span>':
+       hot?'<span class="mc-flag">告警</span>':'')+
+      '<span class="mc-spec">'+m.platform+' '+m.platform_version+'<br>'+
+        m.arch+' · '+m.cores+'核'+m.threads+'线</span>'+
+    '</div>'+
+    '<div class="sat">'+sat("CPU",m.cpu,off)+sat("内存",m.mem,off)+
+      sat("交换",m.swap,off)+sat("硬盘",m.disk,off)+'</div>'+
+    '<div class="facts">'+
+      '<div class="fx"><span class="fk">负载</span><span class="fv'+(off?" k":"")+'">'+
+        (off?"——":m.load.map(x=>x.toFixed(2)).join('<em>/</em>'))+'</span></div>'+
+      '<div class="fx"><span class="fk">在线</span><span class="fv'+(off?" k":"")+'">'+
+        (off?"离线 "+dur(m.offline_for):dur(m.uptime))+'</span></div>'+
+      '<div class="fx w2"><span class="fk">网速</span><span class="fv'+(off?" k":"")+'">'+
+        (off?"——":'<i>↓</i>'+human(m.net_in_speed)+'/s <i>↑</i>'+
+          human(m.net_out_speed)+'/s')+'</span></div>'+
+      (off?'<div class="fx w2"><span class="fk">流量</span>'+
+        '<span class="fv k">——</span></div>':quota(m))+
+    '</div></article>'}
+
+const grid=document.getElementById("grid");
+function render(list){
+  grid.innerHTML=list.map(card).join("");
+  const on=list.filter(m=>m.online).length;
+  const hot=list.filter(m=>m.online&&
+    [m.cpu,m.mem,m.swap,m.disk].some(v=>v>=T.warn)).length;
+  document.getElementById("n-on").textContent=on;
+  document.getElementById("n-warn").textContent=hot;
+  document.getElementById("n-off").textContent=list.length-on;
+}
+// The panel reads its own API. Until the server exists the demo set renders so
+// the surface can be reviewed, and it says so in the legend rather than passing
+// invented figures off as a real fleet.
+async function load(){
+  try{
+    const r=await fetch("/api/v1/servers",{headers:{"Accept":"application/json"}});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    render(await r.json());
+    document.getElementById("src").textContent="";
+  }catch{
+    render(DEMO);
+    document.getElementById("src").innerHTML=
+      '<b>示例数据为合成</b>,非真实机队(后端未连接)';
+  }
+}
+const DEMO=[
+ {name:"tokyo-1",platform:"Ubuntu",platform_version:"24.04",arch:"amd64",cores:4,
+  threads:8,online:1,cpu:12,mem:38,swap:0,disk:44,load:[.24,.31,.28],uptime:3628800,
+  net_in_speed:1.26e6,net_out_speed:3.4e5,net_in_total:2.31e12,net_out_total:8.9e11,
+  quota_bytes:6e12,quota_mode:"sum"},
+ {name:"sfo-web",platform:"Debian",platform_version:"12",arch:"amd64",cores:8,
+  threads:16,online:1,cpu:67,mem:71,swap:12,disk:52,load:[1.82,1.64,1.41],
+  uptime:1468800,net_in_speed:8.4e6,net_out_speed:2.1e6,net_in_total:1.8e13,
+  net_out_total:4.2e12,quota_bytes:2.6e13,quota_mode:"sum"},
+ {name:"fra-db",platform:"AlmaLinux",platform_version:"9",arch:"amd64",cores:4,
+  threads:8,online:1,cpu:23,mem:84,swap:38,disk:91,load:[.91,.88,.79],
+  uptime:8899200,net_in_speed:2.2e5,net_out_speed:9.5e4,net_in_total:9.4e11,
+  net_out_total:3.1e11,quota_bytes:0},
+ {name:"nyc-cache",platform:"Ubuntu",platform_version:"24.04",arch:"arm64",cores:2,
+  threads:2,online:1,cpu:8,mem:22,swap:0,disk:31,load:[.11,.09,.12],uptime:691200,
+  net_in_speed:5.4e5,net_out_speed:1.8e5,net_in_total:1.2e11,net_out_total:4.5e10,
+  quota_bytes:5.5e11,quota_mode:"out"},
+ {name:"sgp-edge",platform:"Ubuntu",platform_version:"24.04",arch:"arm64",cores:2,
+  threads:2,online:0,offline_for:720},
+ {name:"lon-mail",platform:"Debian",platform_version:"12",arch:"amd64",cores:2,
+  threads:4,online:1,cpu:31,mem:57,swap:4,disk:68,load:[.42,.38,.35],uptime:5270400,
+  net_in_speed:9.1e5,net_out_speed:1.4e6,net_in_total:6.2e11,net_out_total:7.7e11,
+  quota_bytes:8.4e11,quota_mode:"max"}];
+
+const Q=new URLSearchParams(location.search);
+const STILL=Q.has("still");
+function tick(){const d=new Date();document.getElementById("clk").textContent=
+  [d.getHours(),d.getMinutes(),d.getSeconds()]
+    .map(x=>String(x).padStart(2,"0")).join(":")}
+if(STILL){document.getElementById("clk").textContent="14:32:07"}
+else{tick();setInterval(tick,1000);
+  setInterval(()=>{const w=grid.querySelectorAll(".well");
+    const t=w[Math.floor(Math.random()*w.length)];if(!t)return;
+    t.classList.add("flipping");
+    setTimeout(()=>t.classList.remove("flipping"),200)},1400);}
+
+const html=document.documentElement;
+const btns=[...document.querySelectorAll(".themer button")];
+function setT(t,persist){html.dataset.theme=t;
+  if(persist!==false)try{localStorage.setItem("dingzi-theme",t)}catch{}
+  btns.forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.t===t)))}
+btns.forEach(b=>b.onclick=()=>setT(b.dataset.t));
+const forced=Q.get("theme");
+let stored=null;try{stored=localStorage.getItem("dingzi-theme")}catch{}
+setT(forced||stored||"auto",!forced);
+load();
+</script>
+</body>
+</html>
