@@ -30,9 +30,9 @@ type Host struct {
 
 // State is one metrics sample.
 //
-// Counters (NetInTotal, TCPConns, ...) are reported as absolute values rather
-// than deltas: an agent restart or a dropped frame then cannot corrupt a rate
-// calculation beyond the single interval it happened in.
+// Counters are reported as absolute values rather than deltas: an agent restart
+// or a dropped frame then cannot corrupt a rate calculation beyond the single
+// interval it happened in.
 type State struct {
 	// AgentTimeMS is the agent's own clock when the sample was taken. The
 	// panel stamps its own time on arrival and uses the difference to surface
@@ -45,10 +45,19 @@ type State struct {
 	SwapUsed uint64 `json:"swap_used"` // bytes
 	DiskUsed uint64 `json:"disk_used"` // bytes
 
-	NetInTransfer  uint64 `json:"net_in_transfer"`  // bytes since agent start
-	NetOutTransfer uint64 `json:"net_out_transfer"` // bytes since agent start
-	NetInSpeed     uint64 `json:"net_in_speed"`     // bytes/sec
-	NetOutSpeed    uint64 `json:"net_out_speed"`    // bytes/sec
+	// NetInTransfer and NetOutTransfer are the OS's raw cumulative interface
+	// counters, NOT bytes since the agent started. The agent deliberately does
+	// not subtract a baseline: these counters reset on agent restart, machine
+	// reboot, NIC reset and 32-bit overflow, so somebody has to detect the
+	// rollback, and doing it here as well as on the server would duplicate the
+	// same error-prone logic in two places. The server owns it, because it
+	// already needs deltas to compute speed and to accumulate monthly totals
+	// for quota tracking.
+	NetInTransfer  uint64 `json:"net_in_transfer"`
+	NetOutTransfer uint64 `json:"net_out_transfer"`
+
+	NetInSpeed  uint64 `json:"net_in_speed"`  // bytes/sec
+	NetOutSpeed uint64 `json:"net_out_speed"` // bytes/sec
 
 	Load1  float64 `json:"load1"`
 	Load5  float64 `json:"load5"`
