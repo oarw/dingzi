@@ -1,0 +1,21 @@
+# Normalize to LF in the repository. This project is authored on Windows but
+# deployed on Linux; a shell script checked in with CRLF fails at runtime with
+# a confusing "bad interpreter" error.
+* text=auto eol=lf
+
+# Scripts and Go sources must be LF on checkout everywhere.
+*.sh   text eol=lf
+*.go   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+
+# Windows-only files keep CRLF.
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Never touch binaries.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
