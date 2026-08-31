@@ -54,10 +54,13 @@ const (
 	TypeError = "error"
 )
 
+// Terminal setup uses TypeTerminalOpen and TypeTerminalResult, declared in
+// terminal.go alongside the rest of the terminal contract.
+
 // Envelope wraps every frame. Data holds the type-specific payload.
 type Envelope struct {
-	V    int             `json:"v"`
-	Type string          `json:"type"`
+	V    int    `json:"v"`
+	Type string `json:"type"`
 	// ID correlates a response with its request. Empty for unsolicited frames.
 	ID   string          `json:"id,omitempty"`
 	Data json.RawMessage `json:"data,omitempty"`

@@ -26,6 +26,12 @@ type Host struct {
 
 	// GPUs lists detected accelerator model names, empty on most machines.
 	GPUs []string `json:"gpus,omitempty"`
+
+	// TerminalEnabled reports whether this agent was started with
+	// --allow-terminal. The panel uses it to show a terminal control only where
+	// one can actually open, and to make the exposure visible: an operator
+	// should be able to see at a glance which machines accept shells.
+	TerminalEnabled bool `json:"terminal_enabled,omitempty"`
 }
 
 // State is one metrics sample.
@@ -116,5 +122,6 @@ func (h Host) Equal(o Host) bool {
 		h.MemTotal == o.MemTotal &&
 		h.SwapTotal == o.SwapTotal &&
 		h.DiskTotal == o.DiskTotal &&
-		h.BootTime == o.BootTime
+		h.BootTime == o.BootTime &&
+		h.TerminalEnabled == o.TerminalEnabled
 }

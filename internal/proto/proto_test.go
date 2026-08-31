@@ -118,6 +118,7 @@ func TestHostEqual(t *testing.T) {
 		"BootTime":        func(h *Host) { h.BootTime = 1700000001 },
 		"GPUs content":    func(h *Host) { h.GPUs = []string{"H100"} },
 		"GPUs length":     func(h *Host) { h.GPUs = nil },
+		"TerminalEnabled": func(h *Host) { h.TerminalEnabled = true },
 	}
 	for name, fn := range mutate {
 		t.Run(name, func(t *testing.T) {
@@ -131,7 +132,7 @@ func TestHostEqual(t *testing.T) {
 	}
 
 	// Guard against a field being added to Host without being added to Equal.
-	const fieldsCoveredByEqual = 15 // 14 scalars + GPUs
+	const fieldsCoveredByEqual = 16 // 15 scalars + GPUs
 	if got := reflect.TypeOf(Host{}).NumField(); got != fieldsCoveredByEqual {
 		t.Errorf("Host has %d fields but Equal covers %d — update both",
 			got, fieldsCoveredByEqual)
