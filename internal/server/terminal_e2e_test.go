@@ -267,8 +267,18 @@ func TestTerminalResizeReachesPTY(t *testing.T) {
 
 	// stty reports the pty's own idea of its size, which is the thing under test
 	// rather than anything the panel is tracking.
+	//
+	// The busybox fallback matters: an Alpine image has the stty applet but no
+	// /bin/stty symlink, so the plain call fails there — and Alpine is the case
+	// this feature exists for, so skipping the assertion there would leave the
+	// most likely breakage unverified.
+	// The "no stty" sentinel is computed by the shell rather than written
+	// literally, because the pty echoes the command back: a literal sentinel
+	// would appear in that echo and be detected before the command had run.
 	if err := conn.WriteMessage(websocket.BinaryMessage,
-		[]byte("stty size 2>/dev/null || echo no-stty\n")); err != nil {
+		[]byte("stty size 2>/dev/null || busybox stty size 2>/dev/null || "+
+			"echo NOSTTY$((41+1))\n"),
+	); err != nil {
 		t.Fatalf("write command: %v", err)
 	}
 
@@ -278,7 +288,7 @@ func TestTerminalResizeReachesPTY(t *testing.T) {
 		if strings.Contains(out.String(), want) {
 			return
 		}
-		if strings.Contains(out.String(), "no-stty") {
+		if strings.Contains(out.String(), "NOSTTY42") {
 			t.Skip("no stty on this image, cannot verify the pty size")
 		}
 		if time.Now().After(deadline) {

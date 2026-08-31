@@ -26,8 +26,14 @@ agent.yaml
 *.log
 *.log.err
 /e2e/data/
-/e2e/dingzi-agent-linux
 /e2e/dingzi-*
+
+# WSL Linux verification: the rootfs and the cross-compiled test binaries are
+# large build artifacts. run-tests.sh is tracked; everything it operates on is
+# rebuilt on demand.
+/e2e/wsl/*.tar.gz
+/e2e/wsl/rootfs/
+/e2e/wsl/*.test
 
 # editors / os
 .DS_Store
