@@ -73,8 +73,19 @@ const (
 // Terminal control frame types, sent as JSON text frames on a terminal
 // connection.
 const (
-	// TerminalResize changes the pty window size.
+	// TerminalResize changes the pty window size. Browser to agent.
 	TerminalResize = "resize"
+	// TerminalReady reports that a shell is attached. Panel to browser.
+	TerminalReady = "ready"
+	// TerminalNotice carries a human-readable message to display in the
+	// terminal pane. Panel to browser.
+	//
+	// Failures are reported this way rather than by closing the socket: a
+	// closed WebSocket gives the browser an error event with no readable
+	// reason, so the operator would see an empty pane whether the agent has
+	// terminals disabled, is unreachable, or is wedged. Those need different
+	// actions, so they need different words.
+	TerminalNotice = "notice"
 )
 
 // Size bounds for a pty. A terminal is a display, not a data structure: values
@@ -120,6 +131,10 @@ type TerminalControl struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols,omitempty"`
 	Rows uint16 `json:"rows,omitempty"`
+	// Message is human-readable text for [TerminalNotice], shown verbatim.
+	Message string `json:"message,omitempty"`
+	// Shell names the interpreter for [TerminalReady].
+	Shell string `json:"shell,omitempty"`
 }
 
 // ClampTerminalSize brings a requested window size into the supported range.

@@ -57,6 +57,15 @@ type Config struct {
 	// self-signed panels; it is a real downgrade and the agent says so at start.
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify,omitempty"`
 
+	// AllowTerminal permits the panel to open a shell on this machine.
+	//
+	// Off unless the operator sets it. This is the security boundary for the
+	// web terminal, and it lives here — on the machine being risked — rather
+	// than only in the panel, which is the thing that might be compromised. A
+	// panel with a stolen session reaches exactly the machines whose owner
+	// deliberately turned this on.
+	AllowTerminal bool `yaml:"allow_terminal,omitempty"`
+
 	// path is where this config was loaded from, for writing back.
 	path string `yaml:"-"`
 }
@@ -120,6 +129,9 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("DINGZI_INSECURE_SKIP_VERIFY"); v != "" {
 		c.InsecureSkipVerify = v == "1" || strings.EqualFold(v, "true")
 	}
+	if v := os.Getenv("DINGZI_ALLOW_TERMINAL"); v != "" {
+		c.AllowTerminal = v == "1" || strings.EqualFold(v, "true")
+	}
 }
 
 // applyOverride layers the command line over everything. Only non-zero fields
@@ -149,6 +161,24 @@ func (c *Config) applyOverride(o Config) {
 	if o.InsecureSkipVerify {
 		c.InsecureSkipVerify = true
 	}
+	if o.AllowTerminal {
+		c.AllowTerminal = true
+	}
+}
+
+// Path is the config file this configuration came from, empty when the agent
+// was started from flags alone. Callers use it to warn that a generated
+// identity has nowhere to be saved.
+func (c *Config) Path() string { return c.path }
+
+// TerminalURL is the endpoint the agent dials back to when the panel asks for a
+// shell.
+//
+// Derived from the already-validated metrics URL by swapping the path, so the
+// terminal connection cannot end up on a different host, scheme or subpath than
+// the connection the panel was authenticated on.
+func (c *Config) TerminalURL() string {
+	return strings.TrimSuffix(c.Server, proto.Path) + proto.TerminalAgentPath
 }
 
 // Validate checks the config is usable and normalises the server URL.

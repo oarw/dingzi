@@ -193,9 +193,9 @@ func TestSaveIsAtomicAndLeavesNoTemps(t *testing.T) {
 func TestIntervalClamping(t *testing.T) {
 	c := &Config{ReportInterval: 1}
 	tests := []struct {
-		name      string
-		server    float64
-		wantSecs  float64
+		name     string
+		server   float64
+		wantSecs float64
 	}{
 		{"server value wins", 5, 5},
 		{"zero falls back to config", 0, 1},

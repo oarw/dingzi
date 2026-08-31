@@ -160,6 +160,12 @@ func (c *Client) session(ctx context.Context) error {
 		// rather than dropping the machine.
 		c.log.Warn("host info incomplete", slog.Any("error", err))
 	}
+	// The panel needs to know whether this agent will accept a terminal so it
+	// can show the control only where one can open. Set here rather than in the
+	// collector because it is a policy the operator chose, not a fact about the
+	// machine.
+	host.TerminalEnabled = c.cfg.AllowTerminal
+
 	hello := proto.Hello{
 		UUID: c.cfg.UUID, Version: c.version, Name: c.cfg.Name, Host: host,
 	}
@@ -308,6 +314,16 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn) error {
 			// Each task runs in its own goroutine: a 5-second ping must not
 			// delay the metrics stream or another task behind it.
 			go c.runTask(ctx, env.ID, t)
+		case proto.TypeTerminalOpen:
+			var open proto.TerminalOpen
+			if err := proto.Decode(&env, &open); err != nil {
+				c.log.Warn("undecodable terminal request", slog.Any("error", err))
+				continue
+			}
+			// Its own goroutine, and it lives for the whole session: a terminal
+			// must not hold up the metrics stream, which is the reason the pty
+			// travels on a separate connection in the first place.
+			go c.handleTerminalOpen(ctx, env.ID, open)
 		case proto.TypeError:
 			var e proto.ErrorPayload
 			_ = proto.Decode(&env, &e)
@@ -363,6 +379,9 @@ func (c *Client) maybeResendHost(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	// Kept in sync with the hello, or a resend would silently clear the flag and
+	// the panel would hide the terminal control on a machine that allows one.
+	host.TerminalEnabled = c.cfg.AllowTerminal
 	c.lastHostSent = time.Now()
 	if host.Equal(c.lastHost) {
 		return
@@ -373,4 +392,3 @@ func (c *Client) maybeResendHost(ctx context.Context) {
 	}
 	c.lastHost = host
 }
-
