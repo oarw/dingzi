@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Dingzi 钉子</title>
+<!-- xterm.js, vendored rather than loaded from a CDN: the panel is one binary
+     with no outbound dependencies, and a monitoring tool that needs the
+     internet to render is a monitoring tool that fails when you need it.
+     MIT licensed, see vendor/LICENSE-xterm. -->
+<link rel="stylesheet" href="vendor/xterm.css">
 </head>
 <body>
 <!--
@@ -267,6 +272,64 @@ body{
   .facts{padding:10px 12px 0;grid-template-columns:1fr;gap:5px}
   .legend{gap:7px 16px}
 }
+/* ── terminal ─────────────────────────────────────────────────────────────
+   A service panel opening on the board, not a separate application. The
+   terminal's own colours are already amber-on-near-black, so it needs no
+   reconciling with the board — it needs a frame that reads as part of it. */
+.mc-term{
+  margin-left:auto;align-self:start;
+  font:600 11px/1 var(--mono);letter-spacing:.06em;
+  color:var(--val);background:var(--well);
+  border:1px solid var(--edge);border-radius:var(--r);
+  padding:4px 7px;cursor:pointer;
+}
+.mc-term:hover{border-color:var(--val)}
+.mc-term:focus-visible{outline:2px solid var(--val);outline-offset:2px}
+/* On a card whose header is a solid warning band, the button sits on that band
+   and must take its ink from it or it disappears into the colour. */
+.mc.is-warn .mc-term{color:var(--band-ink);border-color:rgba(0,0,0,.35);
+  background:rgba(0,0,0,.12)}
+
+.term-wrap{
+  position:fixed;inset:0;z-index:50;display:none;
+  background:color-mix(in srgb,var(--ground) 88%,transparent);
+  backdrop-filter:blur(3px);
+  padding:min(4vh,32px) min(4vw,32px);
+}
+.term-wrap[data-open="1"]{display:flex}
+.term-box{
+  margin:auto;width:100%;max-width:1100px;height:100%;max-height:760px;
+  display:flex;flex-direction:column;
+  background:var(--board);border:1px solid var(--edge);border-radius:var(--r);
+  box-shadow:0 24px 64px rgba(0,0,0,.45);overflow:hidden;
+}
+.term-head{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 12px;background:var(--board-lo);
+  border-bottom:1px solid var(--edge);
+}
+.term-title{font:600 13px/1.2 var(--sans);color:var(--ink)}
+.term-shell{font:400 11px/1.2 var(--mono);color:var(--ink-dim)}
+/* The exposure is stated in the frame, every session. An operator who opened a
+   root shell on a container should not have to remember that they did. */
+.term-warn{
+  font:600 10px/1 var(--mono);letter-spacing:.04em;
+  color:var(--flag-ink);background:var(--flag-bg);
+  padding:3px 6px;border-radius:2px;
+}
+.term-x{
+  margin-left:auto;font:600 15px/1 var(--mono);
+  color:var(--ink-dim);background:none;border:0;cursor:pointer;padding:4px 8px;
+}
+.term-x:hover{color:var(--warn)}
+.term-x:focus-visible{outline:2px solid var(--val);outline-offset:2px}
+.term-body{flex:1;min-height:0;background:var(--well);padding:8px 10px}
+.term-body .xterm{height:100%}
+@media (max-width:560px){
+  .term-wrap{padding:0}
+  .term-box{max-height:none;border-radius:0;border:0}
+  .term-shell{display:none}
+}
 </style>
 <div class="board">
   <header class="masthead">
@@ -291,13 +354,35 @@ body{
     <span><b>│</b>= 配额 80% 警戒线</span>
     <span>饱和度 <b>&lt;70 / 70–89 / ≥90</b> · 配额 <b>&lt;80 / 80–94 / ≥95</b></span>
     <span id="src"></span>
+    <span id="term-note"></span>
   </div>
 </div>
+<div class="term-wrap" id="term-wrap" role="dialog" aria-modal="true"
+     aria-labelledby="term-title">
+  <div class="term-box">
+    <div class="term-head">
+      <span class="term-title" id="term-title">终端</span>
+      <span class="term-shell" id="term-shell"></span>
+      <span class="term-warn">以 agent 的用户身份运行</span>
+      <button class="term-x" id="term-x" aria-label="关闭终端">✕</button>
+    </div>
+    <div class="term-body" id="term-body"></div>
+  </div>
+</div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
 <script>
 "use strict";
 const T={caution:70,warn:90};
 const band=v=>v>=T.warn?"warn":v>=T.caution?"caution":"";
 const qband=v=>v>=95?"warn":v>=80?"caution":"";
+// esc guards every agent-supplied string on its way into HTML. The machine name
+// comes from a hostname or an operator's input, and the platform strings come
+// from the agent, so none of them are the panel's to trust.
+function esc(s){return String(s==null?"":s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
 function human(b){const u=["B","K","M","G","T","P"];let i=0;
   while(b>=1024&&i<u.length-1){b/=1024;i++}
   return (b<10&&i>0?b.toFixed(1):Math.round(b))+u[i]}
@@ -337,11 +422,16 @@ function card(m){
   return '<article class="mc'+(off?" is-off":"")+(hot?" is-warn":"")+'">'+
     '<div class="mc-head">'+
       '<span class="lamp'+(off?" off":"")+'" aria-hidden="true"></span>'+
-      '<span class="mc-name">'+m.name+'</span>'+
+      '<span class="mc-name">'+esc(m.name)+'</span>'+
       (off?'<span class="mc-flag off">离线</span>':
        hot?'<span class="mc-flag">告警</span>':'')+
-      '<span class="mc-spec">'+m.platform+' '+m.platform_version+'<br>'+
-        m.arch+' · '+m.cores+'核'+m.threads+'线</span>'+
+      '<span class="mc-spec">'+esc(m.platform)+' '+esc(m.platform_version)+'<br>'+
+        esc(m.arch)+' · '+m.cores+'核'+m.threads+'线</span>'+
+      // Shown only where a terminal can actually open: the panel allows it, the
+      // agent allows it, and the machine is online.
+      ((PANEL_TERMINAL&&m.terminal&&!off)
+        ?'<button class="mc-term" data-id="'+m.id+'" data-name="'+esc(m.name)+
+         '" title="打开终端" aria-label="打开 '+esc(m.name)+' 的终端">›_</button>':'')+
     '</div>'+
     '<div class="sat">'+sat("CPU",m.cpu,off)+sat("内存",m.mem,off)+
       sat("交换",m.swap,off)+sat("硬盘",m.disk,off)+'</div>'+
@@ -370,13 +460,40 @@ function render(list){
 // The panel reads its own API. Until the server exists the demo set renders so
 // the surface can be reviewed, and it says so in the legend rather than passing
 // invented figures off as a real fleet.
+// PANEL_TERMINAL is whether the panel itself allows terminals. A machine also
+// has to have an agent started with --allow-terminal; both must agree before the
+// button appears, so an operator is never offered a control that always fails.
+let PANEL_TERMINAL=false;
+
+// The API is flat and uses its own field names. Normalising here keeps the
+// renderer working from one shape whether the data came from the server or the
+// demo set, instead of teaching every call site about both.
+function adapt(row,now){
+  return {id:row.id,name:row.name,online:row.online,
+    platform:row.platform,platform_version:"",arch:row.arch,
+    cores:row.cpu_cores,threads:row.cpu_threads,
+    cpu:row.cpu,mem:row.mem,swap:row.swap,disk:row.disk,
+    load:[row.load1,row.load5,row.load15],
+    uptime:row.uptime,
+    offline_for:row.last_seen?Math.max(0,now-row.last_seen):0,
+    net_in_speed:row.net_in_speed,net_out_speed:row.net_out_speed,
+    net_in_total:row.traffic_in,net_out_total:row.traffic_out,
+    quota_bytes:row.quota,quota_mode:row.quota_mode,
+    terminal:row.terminal_enabled,skew_ms:row.skew_ms||0};
+}
 async function load(){
   try{
     const r=await fetch("/api/v1/servers",{headers:{"Accept":"application/json"}});
     if(!r.ok)throw new Error("HTTP "+r.status);
-    render(await r.json());
-    document.getElementById("src").textContent="";
+    const d=await r.json();
+    PANEL_TERMINAL=!!d.terminal_enabled;
+    render((d.servers||[]).map(row=>adapt(row,d.now)));
+    // An empty but reachable fleet is a real state, and it is not the same as a
+    // backend that is down. Saying so beats an unexplained empty page.
+    document.getElementById("src").innerHTML=
+      (d.servers&&d.servers.length)?"":'面板已连接,尚未有 agent 上报';
   }catch{
+    PANEL_TERMINAL=false;
     render(DEMO);
     document.getElementById("src").innerHTML=
       '<b>示例数据为合成</b>,非真实机队(后端未连接)';
@@ -413,10 +530,121 @@ function tick(){const d=new Date();document.getElementById("clk").textContent=
     .map(x=>String(x).padStart(2,"0")).join(":")}
 if(STILL){document.getElementById("clk").textContent="14:32:07"}
 else{tick();setInterval(tick,1000);
+  // Poll. Without this the board shows whatever was true when the tab opened,
+  // which for a monitoring panel is worse than showing nothing.
+  setInterval(load,2000);
   setInterval(()=>{const w=grid.querySelectorAll(".well");
     const t=w[Math.floor(Math.random()*w.length)];if(!t)return;
     t.classList.add("flipping");
     setTimeout(()=>t.classList.remove("flipping"),200)},1400);}
+
+/* ── terminal ─────────────────────────────────────────────────────────────── */
+const TW=document.getElementById("term-wrap");
+let TERM=null,FIT=null,WS=null,LASTFOCUS=null;
+
+// Themes for xterm. Reusing the board's own tokens rather than xterm's defaults,
+// so the terminal is the same object as the panel around it.
+function termTheme(){
+  const cs=getComputedStyle(document.documentElement);
+  const v=n=>cs.getPropertyValue(n).trim();
+  const light=document.documentElement.dataset.theme==="light"||
+    (document.documentElement.dataset.theme==="auto"&&
+     !window.matchMedia("(prefers-color-scheme: dark)").matches);
+  return light
+    ? {background:v("--well")||"#e2e2df",foreground:"#15171a",cursor:"#15171a",
+       selectionBackground:"rgba(0,0,0,.18)"}
+    : {background:v("--well")||"#080a0d",foreground:"#e9e7e2",cursor:v("--val"),
+       selectionBackground:"rgba(255,176,0,.28)"};
+}
+
+function closeTerm(){
+  TW.dataset.open="";
+  if(WS){WS.onclose=null;WS.close();WS=null}
+  if(TERM){TERM.dispose();TERM=null;FIT=null}
+  document.getElementById("term-shell").textContent="";
+  if(LASTFOCUS&&document.body.contains(LASTFOCUS)){LASTFOCUS.focus()}
+}
+
+function openTerm(id,name){
+  LASTFOCUS=document.activeElement;
+  document.getElementById("term-title").textContent="终端 · "+name;
+  document.getElementById("term-shell").textContent="";
+  TW.dataset.open="1";
+
+  TERM=new Terminal({
+    fontFamily:getComputedStyle(document.documentElement)
+      .getPropertyValue("--mono").trim()||"monospace",
+    fontSize:13,lineHeight:1.2,cursorBlink:true,
+    scrollback:2000,theme:termTheme(),
+    // Terminal output is bytes, not text. Letting xterm decode UTF-8 itself from
+    // the raw stream is what makes a Chinese filename arrive intact even when it
+    // is split across two frames.
+    convertEol:false});
+  FIT=new FitAddon.FitAddon();
+  TERM.loadAddon(FIT);
+  TERM.open(document.getElementById("term-body"));
+  FIT.fit();
+  TERM.focus();
+
+  const proto=location.protocol==="https:"?"wss:":"ws:";
+  const url=proto+"//"+location.host+"/api/v1/servers/"+id+
+    "/terminal?cols="+TERM.cols+"&rows="+TERM.rows;
+  WS=new WebSocket(url);
+  WS.binaryType="arraybuffer";
+
+  WS.onmessage=ev=>{
+    if(typeof ev.data==="string"){
+      // Text frames are control messages. Notices are printed into the pane so a
+      // refusal reads as words instead of an empty terminal.
+      let c;try{c=JSON.parse(ev.data)}catch{return}
+      if(c.type==="notice"){TERM.writeln("\x1b[33m"+c.message+"\x1b[0m")}
+      else if(c.type==="ready"){
+        document.getElementById("term-shell").textContent=c.shell||"";
+      }
+      return;
+    }
+    TERM.write(new Uint8Array(ev.data));
+  };
+  WS.onerror=()=>{TERM.writeln("\x1b[31m连接失败\x1b[0m")};
+  WS.onclose=()=>{TERM.writeln("\r\n\x1b[90m[连接已关闭]\x1b[0m")};
+
+  // Keystrokes go out as binary so the bytes the shell receives are exactly the
+  // bytes the terminal produced.
+  const enc=new TextEncoder();
+  TERM.onData(d=>{if(WS&&WS.readyState===1)WS.send(enc.encode(d))});
+
+  // Resizing has to reach the pty, or top and vi draw into the wrong box.
+  TERM.onResize(({cols,rows})=>{
+    if(WS&&WS.readyState===1){
+      WS.send(JSON.stringify({type:"resize",cols,rows}));
+    }
+  });
+}
+
+let fitTimer=null;
+window.addEventListener("resize",()=>{
+  if(!FIT)return;
+  clearTimeout(fitTimer);
+  fitTimer=setTimeout(()=>{try{FIT.fit()}catch{}},80);
+});
+
+document.getElementById("term-x").addEventListener("click",closeTerm);
+document.addEventListener("keydown",e=>{
+  // Escape closes only when the terminal is open, and only when it is not the
+  // shell that wants the key: xterm consumes Escape for the application, so this
+  // listener sees it on the document only when the pane has no focus.
+  if(e.key==="Escape"&&TW.dataset.open==="1"&&
+     !document.getElementById("term-body").contains(document.activeElement)){
+    closeTerm();
+  }
+});
+// Delegated, because cards are re-rendered on every poll and a listener bound to
+// a button would be discarded two seconds later.
+grid.addEventListener("click",e=>{
+  const b=e.target.closest(".mc-term");
+  if(!b)return;
+  openTerm(b.dataset.id,b.dataset.name);
+});
 
 const html=document.documentElement;
 const btns=[...document.querySelectorAll(".themer button")];

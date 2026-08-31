@@ -20,6 +20,15 @@ agent.yaml
 !config.example.yaml
 !agent.example.yaml
 
+# e2e run artifacts. The scripts are tracked; their output is not — the panel
+# prints the generated agent secret and the one-time admin password to stdout on
+# first start, so a captured log is a credentials file.
+*.log
+*.log.err
+/e2e/data/
+/e2e/dingzi-agent-linux
+/e2e/dingzi-*
+
 # editors / os
 .DS_Store
 Thumbs.db
