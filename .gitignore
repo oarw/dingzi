@@ -20,20 +20,22 @@ agent.yaml
 !config.example.yaml
 !agent.example.yaml
 
-# e2e run artifacts. The scripts are tracked; their output is not — the panel
-# prints the generated agent secret and the one-time admin password to stdout on
-# first start, so a captured log is a credentials file.
+# e2e output. Everything generated goes in one ignored directory rather than
+# being enumerated file by file, because the panel prints the generated agent
+# secret and the one-time admin password to stdout on first start — so anything
+# that captures its output is a credentials file, and a per-file ignore list is
+# one forgotten entry away from committing one. The scripts are tracked; nothing
+# they produce is.
+/e2e/run/
 *.log
 *.log.err
-/e2e/data/
-/e2e/dingzi-*
 
-# WSL Linux verification: the rootfs and the cross-compiled test binaries are
-# large build artifacts. run-tests.sh is tracked; everything it operates on is
-# rebuilt on demand.
+# WSL Linux verification: rootfs, tarball and cross-compiled binaries are large
+# build artifacts, rebuilt on demand. run-tests.sh is tracked.
 /e2e/wsl/*.tar.gz
 /e2e/wsl/rootfs/
 /e2e/wsl/*.test
+/e2e/wsl/dingzi-*
 
 # editors / os
 .DS_Store
