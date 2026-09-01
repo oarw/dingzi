@@ -110,3 +110,5 @@ tail -f /var/log/dingzi-agent.log
 
 最常见的两个原因:面板地址写错(scheme 决定是否加密,`http://` 不会自动升级),
 以及密钥粘贴时带了空格。
+
+面板侧看 agent 有没有连上:`journalctl -u dingzi-server -f | grep "agent connected"`。
