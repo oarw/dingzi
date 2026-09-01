@@ -54,7 +54,26 @@ go build -o dingzi-server ./cmd/server
 
 首次启动会在终端打印随机生成的管理员密码和 Agent 密钥，浏览器打开 `http://<ip>:8008` 登录。
 
-### Agent 端
+### Agent 端(一键安装)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/oarw/dingzi/main/install.sh | sh -s -- \
+    --server https://panel.example.com --secret <上一步的密钥>
+```
+
+容器里需要网页终端,追加 `--allow-terminal`。
+
+脚本会自己判断平台(Linux / macOS / FreeBSD,amd64 / arm64 / armv6-7 / 386 /
+riscv64)、注册服务(systemd 或 OpenRC)、**强制校验 SHA256**。没有
+`--skip-checksum` 这个开关:脚本以 root 执行刚下载的二进制,一个跳过校验的开关
+迟早会有人在生产上用。
+
+用 POSIX `sh` 写的,不是 bash —— Alpine 和各种 slim 镜像没有 bash,而那些正是
+最需要一键安装的机器。
+
+卸载:`install.sh --uninstall`(保留配置,因为里面有机器 uuid,重装可续用)
+
+### Agent 端(手动)
 
 ```bash
 go build -o dingzi-agent ./cmd/agent
