@@ -1,0 +1,324 @@
+name: Release
+
+# 两条发布路径，都自动：
+#
+#   PR (同仓库分支)  → 滚动预发布 vX.Y.Z-pr<N>，每次 push 覆盖同一个
+#   合并进 main      → 正式版，版本号从 Conventional Commits 推出来
+#
+# 为什么 PR 是"一个 PR 一个预发布"而不是"一个 commit 一个"：一个 20 个 commit
+# 的分支会在 release 页面留下 20 条。你真正要的是"合并前能抓一个构建来试"，
+# 那么覆盖同一个 tag 就够了，每个 commit 仍然会刷新它。
+#
+# 为什么 fork 来的 PR 只有构建产物、没有预发布：公开仓库上 fork PR 拿到的
+# GITHUB_TOKEN 是只读的。这是安全属性，不是限制 —— 否则任何人 fork 一下就能
+# 往你的 release 页面推东西。这里不用 pull_request_target 绕过，那等于拿写
+# 权限去跑不受信任的代码。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: '强制指定版本级别（留空则从 commit 推断）'
+        required: false
+        type: choice
+        options: ['', patch, minor, major]
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.25.0"
+
+jobs:
+  # ── 闸门 ───────────────────────────────────────────────────────────────────
+  # 复用 ci.yml 而不是把测试重抄一遍：两份会漂移，而漂移的那一天正好是你
+  # 指望它拦住东西的那一天。
+  gate:
+    uses: ./.github/workflows/ci.yml
+
+  # ── 决定版本号 ─────────────────────────────────────────────────────────────
+  version:
+    needs: gate
+    runs-on: ubuntu-latest
+    outputs:
+      version:    ${{ steps.calc.outputs.version }}
+      tag:        ${{ steps.calc.outputs.tag }}
+      prerelease: ${{ steps.calc.outputs.prerelease }}
+      should_release: ${{ steps.calc.outputs.should_release }}
+      prev_tag:   ${{ steps.calc.outputs.prev_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 需要全部 tag 和 commit 历史来推版本号
+
+      - id: calc
+        env:
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          FORCED_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          # Formal tags only. A PR's rolling prerelease tag (v0.3.0-pr42) sorts
+          # above the last formal release, so basing the next version on it would
+          # skip a whole minor: with v0.2.0 released and PR #42 open, a merged
+          # feat would produce v0.4.0 and v0.3.0 would never exist.
+          PREV="$(git tag -l 'v*' --sort=-v:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+          if [ -z "$PREV" ]; then
+            # 第一次发版。从 v0.1.0 起步而不是 v1.0.0：服务监控和告警还没做，
+            # 一个 1.x 版本号会承诺一个还不存在的稳定面。
+            echo "prev_tag=" >> "$GITHUB_OUTPUT"
+            MAJOR=0; MINOR=1; PATCH=0
+            RANGE=""
+            echo "no previous tag, starting at v0.1.0"
+          else
+            echo "prev_tag=$PREV" >> "$GITHUB_OUTPUT"
+            V="${PREV#v}"
+            MAJOR="${V%%.*}"; REST="${V#*.}"
+            MINOR="${REST%%.*}"; PATCH="${REST#*.}"
+            PATCH="${PATCH%%-*}"   # 丢掉可能存在的 -pr12 之类后缀
+            RANGE="${PREV}..HEAD"
+          fi
+
+          # Conventional Commits → 版本级别。
+          # docs:/chore:/ci:/test:/style: 不发版 —— 这是让"合并就发版"不至于
+          # 每个错别字都产出一个版本的关键。
+          BUMP=""
+          if [ -n "${FORCED_BUMP}" ]; then
+            BUMP="${FORCED_BUMP}"
+            echo "bump forced to $BUMP"
+          elif [ -z "$RANGE" ]; then
+            BUMP="initial"
+          else
+            LOG="$(git log --format='%s%n%b' "$RANGE")"
+            if printf '%s' "$LOG" | grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:'; then
+              BUMP=major
+            elif printf '%s' "$LOG" | grep -qE '^feat(\([^)]*\))?:'; then
+              BUMP=minor
+            elif printf '%s' "$LOG" | grep -qE '^(fix|perf|refactor|revert)(\([^)]*\))?:'; then
+              BUMP=patch
+            fi
+          fi
+
+          if [ "$IS_PR" = "true" ]; then
+            # PR 上不需要 Conventional Commit 才构建 —— 分支上的 WIP commit
+            # 也该能拿到一个可安装的构建。没推出级别就按 patch 预览。
+            [ -n "$BUMP" ] || BUMP=patch
+          fi
+
+          case "$BUMP" in
+            major)   MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor)   MINOR=$((MINOR+1)); PATCH=0 ;;
+            patch)   PATCH=$((PATCH+1)) ;;
+            initial) : ;;
+            "")
+              echo "没有 feat/fix/perf/refactor/revert/breaking 提交，跳过发版"
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              echo "version=" >> "$GITHUB_OUTPUT"
+              echo "tag=" >> "$GITHUB_OUTPUT"
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+          if [ "$IS_PR" = "true" ]; then
+            if [ "$IS_FORK" = "true" ]; then
+              # fork PR：只构建，不发布。token 是只读的。
+              echo "fork PR — 只上传构建产物，不发预发布"
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              echo "version=${VERSION}-pr${PR_NUM}" >> "$GITHUB_OUTPUT"
+              echo "tag=" >> "$GITHUB_OUTPUT"
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "version=${VERSION}-pr${PR_NUM}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}-pr${PR_NUM}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "→ ${BUMP} bump, version v${VERSION}"
+
+  # ── 交叉编译 ───────────────────────────────────────────────────────────────
+  build:
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - {goos: linux,   goarch: amd64}
+          - {goos: linux,   goarch: arm64}
+          - {goos: linux,   goarch: arm}
+          - {goos: linux,   goarch: '386'}
+          - {goos: linux,   goarch: riscv64}
+          - {goos: darwin,  goarch: amd64}
+          - {goos: darwin,  goarch: arm64}
+          - {goos: windows, goarch: amd64}
+          - {goos: freebsd, goarch: amd64}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.target.goos }}
+          GOARCH: ${{ matrix.target.goarch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          EXT=""
+          [ "$GOOS" = "windows" ] && EXT=".exe"
+          # -s -w 去掉符号表和 DWARF：agent 要装到小机器上，这能省几 MB。
+          # 崩溃栈里的行号会丢，但 agent 的错误路径都是显式日志而不是 panic。
+          for c in server agent; do
+            go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/dingzi-${c}-${GOOS}-${GOARCH}${EXT}" "./cmd/${c}"
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target.goos }}-${{ matrix.target.goarch }}
+          path: dist/
+          retention-days: 3
+          if-no-files-found: error
+
+  # ── 发布 ───────────────────────────────────────────────────────────────────
+  publish:
+    needs: [version, build]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: staging
+        run: |
+          set -euo pipefail
+          # 排序固定，这样同样的一组产物总是产出同样的 checksums.txt。
+          # 安装脚本按行尾锚定匹配资产名，所以格式必须是 "<hash>  <name>"。
+          sha256sum $(ls | sort) > checksums.txt
+          cat checksums.txt
+
+      - name: Release notes
+        id: notes
+        env:
+          PREV: ${{ needs.version.outputs.prev_tag }}
+          TAG: ${{ needs.version.outputs.tag }}
+          IS_PRE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          {
+            if [ "$IS_PRE" = "true" ]; then
+              echo "> 预发布构建，来自 PR #${{ github.event.pull_request.number }}。"
+              echo "> 每次向该 PR 推送都会覆盖这个版本。生产请用正式版。"
+              echo
+            fi
+
+            echo "## 变更"
+            echo
+            if [ -n "$PREV" ]; then
+              RANGE="${PREV}..HEAD"
+            else
+              RANGE=""
+            fi
+
+            emit() {
+              # $1 = 匹配的类型前缀，$2 = 小标题
+              local body
+              if [ -n "$RANGE" ]; then
+                body="$(git log --no-merges --format='%s|%h' "$RANGE" \
+                  | grep -E "^$1(\([^)]*\))?!?:" || true)"
+              else
+                body="$(git log --no-merges --format='%s|%h' \
+                  | grep -E "^$1(\([^)]*\))?!?:" || true)"
+              fi
+              if [ -n "$body" ]; then
+                echo "### $2"
+                printf '%s\n' "$body" | while IFS='|' read -r subject sha; do
+                  # 去掉 "feat: " 前缀，标题里留下人话
+                  clean="$(printf '%s' "$subject" | sed -E 's/^[a-z]+(\([^)]*\))?!?: *//')"
+                  echo "- ${clean} (\`${sha}\`)"
+                done
+                echo
+              fi
+            }
+
+            emit 'feat'                    '新功能'
+            emit 'fix'                     '修复'
+            emit 'perf'                    '性能'
+            emit '(refactor|revert)'       '重构'
+            emit '(docs|chore|ci|test|style|build)' '其他'
+
+            echo "## 安装"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh -s -- \\"
+            echo "    --server https://你的面板地址 --secret <面板打印的密钥>"
+            echo '```'
+            echo
+            echo "容器里需要网页终端，加 \`--allow-terminal\`。"
+            echo
+            echo "所有产物都有 \`checksums.txt\`，安装脚本会强制校验。"
+            echo
+            if [ -n "$PREV" ]; then
+              echo "**完整对比**: https://github.com/${{ github.repository }}/compare/${PREV}...${TAG}"
+            fi
+          } > notes.md
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+          IS_PRE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          FLAGS=""
+          [ "$IS_PRE" = "true" ] && FLAGS="--prerelease"
+
+          # 预发布是滚动的：同一个 PR 再推一次就替换掉上一个，而不是堆一条新的。
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "替换已有的 $TAG"
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --target "${{ github.sha }}" \
+            $FLAGS \
+            staging/*
+
+      - name: Summary
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          echo "### 已发布 $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

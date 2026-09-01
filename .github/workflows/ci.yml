@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # release.yml calls this as its gate rather than copying the test matrix.
+  # Two copies would drift, and the day they drift is the day you were counting
+  # on this to stop something.
+  workflow_call:
 
 # Go is pinned rather than floating on stable: go.mod declares 1.25.0, and an
 # unpinned toolchain would download a different one on every run, so a failure
