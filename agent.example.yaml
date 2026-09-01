@@ -1,0 +1,57 @@
+# dingzi-agent 配置示例
+#
+# 优先级：命令行参数 > 环境变量 > 本文件。
+# 只用命令行也能跑，本文件是可选的 —— 但建议用，因为 agent 首次启动生成的
+# uuid 需要一个地方存下来，否则每次重启都会被面板当成一台新机器，历史就断了。
+#
+# 复制成 agent.yaml 后使用：
+#   dingzi-agent --config /etc/dingzi/agent.yaml
+
+# 面板地址。scheme 决定是否加密，没有单独的 --tls 开关可以配反：
+#   https:// 或 wss://  → 加密
+#   http://  或 ws://   → 不加密
+#   裸域名（panel.example.com）→ 默认按 https 处理，避免密钥明文上路
+server: https://panel.example.com
+
+# 面板首次启动时打印的 Agent 密钥。
+secret: 把面板打印的密钥粘贴到这里
+
+# 机器标识，agent 首次运行时自动生成并写回本文件。不要手工填，
+# 也不要在多台机器间复制 —— 两台机器共用一个 uuid，面板会把它们的采样
+# 交错在一起，画出一台不可能这样运行的机器。
+uuid: ""
+
+# 面板上的显示名。只在首次注册时生效；之后在面板里改名不会被 agent 覆盖。
+# 留空则用主机名。
+name: ""
+
+# 采样间隔（秒）。面板会下发它希望的间隔，这里填了就以本地为准。
+# 会被夹到 [0.5, 300] 之间。
+# report_interval: 1
+
+# 计入磁盘用量的挂载点。留空则自动挑选（跳过 tmpfs、overlay 这类虚拟文件系统）。
+# 容器里通常需要显式指定：自动探测可能把 overlay 根挂载算进去，也可能漏掉数据盘。
+# mounts:
+#   - /
+#   - /data
+
+# 不计入网速和流量的网卡前缀。留空用内置默认值，已覆盖 lo / docker / veth /
+# br- / virbr / tun / tap / cni / flannel / kube 等 —— 不排除的话，一台
+# Docker 宿主机的吞吐量会被 veth 对翻倍统计。
+# ignore_interfaces:
+#   - lo
+#   - docker
+#   - veth
+
+# 跳过 TLS 证书校验。只在自签证书的内网里用；打开后 agent 密钥可以被
+# 路径上任何人截获，agent 启动时会打一条 WARN。
+# insecure_skip_verify: false
+
+# 允许面板在这台机器上打开 shell。默认关闭。
+#
+# 这是网页终端的安全边界，而且它故意放在被开终端的这台机器上，而不是只放在
+# 那个可能被攻破的面板上：面板被攻破，也只能碰到机主主动打开过这个开关的机器。
+#
+# 打开之后请理解：shell 以 agent 进程的用户身份运行。监控 agent 通常以 root
+# 跑（要读所有挂载点和传感器），那这就是一个 root shell。
+# allow_terminal: false
