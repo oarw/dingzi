@@ -225,10 +225,33 @@ install -d -m 0700 "$CONF_DIR"
 
 CONF="$CONF_DIR/agent.yaml"
 if [ -f "$CONF" ]; then
-  # 已有配置里存着首次运行生成的 uuid。覆盖它等于把这台机器变成一台新机器，
-  # 面板上会多出一条，历史断在这里。所以重装保留旧配置。
-  say "保留已有配置 $CONF（含机器 uuid）"
-  say "  如需改 server / secret，编辑该文件后重启服务"
+  # 保留 uuid，但更新 server / secret。
+  #
+  # uuid 必须留：它是这台机器的身份，覆盖掉等于在面板上变成一台新机器，历史
+  # 断在这里。但把用户这次显式传进来的 server / secret 丢掉同样不对 —— 那是
+  # 一个静默失败：命令看起来成功了，agent 却还在连旧面板。所以两者都要。
+  say "保留已有 uuid，更新 server / secret"
+  OLD_UUID="$(sed -n 's/^uuid: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CONF" | head -1)"
+  umask 077
+  {
+    printf '# 由 install.sh 生成\n'
+    printf 'server: %s\n' "$SERVER"
+    printf 'secret: %s\n' "$SECRET"
+    printf 'uuid: "%s"\n' "$OLD_UUID"
+    [ "$ALLOW_TERMINAL" = "1" ] && printf 'allow_terminal: true\n'
+  } > "$CONF.new"
+  mv "$CONF.new" "$CONF"
+  chmod 0600 "$CONF"
+  if [ -n "$OLD_UUID" ]; then
+    say "  uuid 保持 $OLD_UUID"
+  fi
+  # allow_terminal 只在这次带了 --allow-terminal 时才写。不带就是关掉 ——
+  # 一个安全开关不该因为"上次开过"而继续开着，那样就没人知道它现在是什么状态。
+  if [ "$ALLOW_TERMINAL" = "1" ]; then
+    say "  网页终端: 开启"
+  else
+    say "  网页终端: 关闭（要开请加 --allow-terminal）"
+  fi
 else
   umask 077
   cat > "$CONF" <<EOF
