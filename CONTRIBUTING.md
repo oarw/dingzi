@@ -98,3 +98,15 @@ wsl -d <distro> -- /bin/sh e2e/wsl/run-tests.sh
   时长或流量增长。
 - **能替用户决定的就不给开关。** 例外是那些真的因服务商而异的东西(流量口径、
   归零日),和那些必须由机主自己承担风险的东西(`--allow-terminal`)。
+
+## 装完之后没上线怎么查
+
+```sh
+# systemd
+journalctl -u dingzi-agent -f
+# OpenRC
+tail -f /var/log/dingzi-agent.log
+```
+
+最常见的两个原因:面板地址写错(scheme 决定是否加密,`http://` 不会自动升级),
+以及密钥粘贴时带了空格。
