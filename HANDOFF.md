@@ -17,7 +17,7 @@
 | `internal/proto/messages.go` | 线协议：`Envelope` 信封、消息类型常量、`Hello`/`Welcome`/`ErrorPayload`、`Encode`/`Decode` |
 | `internal/proto/metrics.go` | `Host`（静态信息）、`State`（指标采样）、`Host.Uptime()` |
 | `go.mod` / `go.sum` | 模块定义，依赖已解析锁定 |
-| `.gitignore` / `.gitattributes` / `LICENSE` | 忽略产物与运行时数据；强制 LF 换行；MIT |
+| `.gitignore` / `.gitattributes` / `LICENSE` | 忽略产物与运行时数据；强制 LF 换行；GNU AGPLv3+ |
 
 **完成度：约 10%。** 只有协议层，两个二进制（agent / server）都还没开始写。
 当前代码能编译是因为 `internal/proto` 不依赖任何第三方库。
