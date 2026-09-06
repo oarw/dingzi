@@ -89,7 +89,7 @@ the alert-rule expression format; online-terminal implementation.
 ## Brand Commitments
 
 - Name: **Dingzi / 钉子**. A nail — small, driven in, holds.
-- MIT licensed, open source.
+- GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later), open source.
 - UI copy in Chinese.
 
 ## Evidence on Hand

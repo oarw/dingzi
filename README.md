@@ -160,4 +160,4 @@ GOOS=linux GOARCH=arm64 go build -o dingzi-agent-linux-arm64 ./cmd/agent
 
 ## 许可
 
-MIT
+GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
