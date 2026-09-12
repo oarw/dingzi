@@ -39,12 +39,14 @@ const (
 
 // harness is a running panel with one connected agent.
 type harness struct {
-	t      *testing.T
-	http   *httptest.Server
-	server *Server
-	store  *Store
-	cookie *http.Cookie
-	id     int64
+	t          *testing.T
+	http       *httptest.Server
+	server     *Server
+	store      *Store
+	cookie     *http.Cookie
+	id         int64
+	credential string
+	uuid       string
 }
 
 func newHarness(t *testing.T, allowTerminal, panelTerminal bool) *harness {
@@ -102,6 +104,10 @@ func (h *harness) startAgent(dir string, allowTerminal bool) {
 	if _, err := cfg.EnsureUUID(); err != nil {
 		h.t.Fatalf("EnsureUUID: %v", err)
 	}
+	if err := cfg.EnsureToken(); err != nil {
+		h.t.Fatal(err)
+	}
+	h.credential, h.uuid = cfg.Token, cfg.UUID
 
 	col, err := agent.NewCollector(nil, nil)
 	if err != nil {
@@ -371,7 +377,8 @@ func TestAgentTerminalRejectsUnknownToken(t *testing.T) {
 	u.Path = proto.TerminalAgentPath
 
 	hdr := http.Header{}
-	hdr.Set("Authorization", "Bearer "+testAgentSecret)
+	hdr.Set("Authorization", "Bearer "+h.credential)
+	hdr.Set(proto.AgentUUIDHeader, h.uuid)
 	hdr.Set(proto.TerminalSessionHeader, "not-a-real-token")
 
 	d := websocket.Dialer{HandshakeTimeout: 10 * time.Second}

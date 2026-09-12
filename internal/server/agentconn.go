@@ -112,8 +112,10 @@ func (c *agentConn) resolve(env *proto.Envelope) {
 	}
 	c.mu.Lock()
 	p, ok := c.pending[env.ID]
-	if ok {
+	if ok && p.want == env.Type {
 		delete(c.pending, env.ID)
+	} else {
+		ok = false
 	}
 	c.mu.Unlock()
 	if !ok {

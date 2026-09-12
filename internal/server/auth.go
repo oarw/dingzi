@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -52,6 +53,16 @@ func (s *sessionStore) issue() (string, error) {
 	// "bounded in practice" that turns into a leak on a panel left running for
 	// a year.
 	now := time.Now()
+	if len(s.tokens) >= 256 {
+		var oldest string
+		var expires time.Time
+		for token, until := range s.tokens {
+			if oldest == "" || until.Before(expires) {
+				oldest, expires = token, until
+			}
+		}
+		delete(s.tokens, oldest)
+	}
 	for t, exp := range s.tokens {
 		if now.After(exp) {
 			delete(s.tokens, t)
@@ -94,6 +105,16 @@ func (s *sessionStore) throttle(ip string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
+	if len(s.lastTry) >= 1024 {
+		for key, at := range s.lastTry {
+			if now.Sub(at) >= loginMinInterval {
+				delete(s.lastTry, key)
+			}
+		}
+		if len(s.lastTry) >= 1024 {
+			return false
+		}
+	}
 	if last, ok := s.lastTry[ip]; ok && now.Sub(last) < loginMinInterval {
 		return false
 	}
@@ -120,6 +141,10 @@ func (s *Server) checkPassword(pw string) bool {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeErr(w, http.StatusForbidden, "请求来源不正确")
+		return
+	}
 	ip := clientIP(r)
 	if !s.sessions.throttle(ip) {
 		writeErr(w, http.StatusTooManyRequests, "请稍候再试")
@@ -160,6 +185,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeErr(w, http.StatusForbidden, "请求来源不正确")
+		return
+	}
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		s.sessions.revoke(c.Value)
 	}
@@ -187,12 +216,27 @@ func (s *Server) authed(r *http.Request) bool {
 // requireAuth wraps a handler that must not run unauthenticated.
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			writeErr(w, http.StatusForbidden, "请求来源不正确")
+			return
+		}
 		if !s.authed(r) {
 			writeErr(w, http.StatusUnauthorized, "需要登录")
 			return
 		}
 		next(w, r)
 	}
+}
+
+func sameOrigin(r *http.Request) bool {
+	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		return false
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host == r.Host
+	}
+	return true
 }
 
 // clientIP extracts the caller's address.

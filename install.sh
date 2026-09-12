@@ -231,20 +231,6 @@ if [ -f "$CONF" ]; then
   # 断在这里。但把用户这次显式传进来的 server / secret 丢掉同样不对 —— 那是
   # 一个静默失败：命令看起来成功了，agent 却还在连旧面板。所以两者都要。
   say "保留已有 uuid，更新 server / secret"
-  OLD_UUID="$(sed -n 's/^uuid: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CONF" | head -1)"
-  umask 077
-  {
-    printf '# 由 install.sh 生成\n'
-    printf 'server: %s\n' "$SERVER"
-    printf 'secret: %s\n' "$SECRET"
-    printf 'uuid: "%s"\n' "$OLD_UUID"
-    [ "$ALLOW_TERMINAL" = "1" ] && printf 'allow_terminal: true\n'
-  } > "$CONF.new"
-  mv "$CONF.new" "$CONF"
-  chmod 0600 "$CONF"
-  if [ -n "$OLD_UUID" ]; then
-    say "  uuid 保持 $OLD_UUID"
-  fi
   # allow_terminal 只在这次带了 --allow-terminal 时才写。不带就是关掉 ——
   # 一个安全开关不该因为"上次开过"而继续开着，那样就没人知道它现在是什么状态。
   if [ "$ALLOW_TERMINAL" = "1" ]; then
@@ -253,19 +239,13 @@ if [ -f "$CONF" ]; then
     say "  网页终端: 关闭（要开请加 --allow-terminal）"
   fi
 else
-  umask 077
-  cat > "$CONF" <<EOF
-# 由 install.sh 生成
-server: $SERVER
-secret: $SECRET
-uuid: ""
-EOF
-  if [ "$ALLOW_TERMINAL" = "1" ]; then
-    printf 'allow_terminal: true\n' >> "$CONF"
-  fi
-  chmod 0600 "$CONF"
-  say "已写入配置 $CONF (0600)"
+  say "创建配置 $CONF"
 fi
+# Let the agent parse YAML and retain both UUID and per-machine credentials.
+"$BIN_DIR/$BIN_NAME" --configure --config "$CONF" --server "$SERVER" \
+  --secret "$SECRET" --allow-terminal="$([ "$ALLOW_TERMINAL" = "1" ] && printf true || printf false)" \
+  || die "配置保存失败，服务尚未重启。请检查现有配置。"
+chmod 0600 "$CONF"
 
 # ---- 服务 -------------------------------------------------------------------
 case "$INIT" in

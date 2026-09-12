@@ -109,7 +109,7 @@ func CycleStart(now time.Time, resetDay int) time.Time {
 	day := clampDay(resetDay, now.Year(), now.Month())
 	start := time.Date(now.Year(), now.Month(), day, 0, 0, 0, 0, now.Location())
 	if start.After(now) {
-		prev := now.AddDate(0, -1, 0)
+		prev := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -1, 0)
 		// AddDate on the 31st of a 31-day month can land in the wrong month
 		// (March 31 minus one month is March 3), so normalise from the first.
 		prev = time.Date(prev.Year(), prev.Month(), 1, 0, 0, 0, 0, now.Location())

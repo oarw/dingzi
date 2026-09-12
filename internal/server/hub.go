@@ -34,6 +34,9 @@ type Sample struct {
 	// between this sample and the previous one.
 	NetInSpeed  uint64
 	NetOutSpeed uint64
+	MemTotal    uint64
+	SwapTotal   uint64
+	DiskTotal   uint64
 }
 
 // ring is a fixed-size circular buffer of samples.
@@ -140,11 +143,13 @@ func (h *Hub) Put(m *Machine) *Machine {
 		existing.Name = m.Name
 		existing.Host = m.Host
 		existing.Version = m.Version
-		return existing
+		copy := *existing
+		return &copy
 	}
 	h.byID[m.ID] = m
 	h.byUUID[m.UUID] = m
-	return m
+	copy := *m
+	return &copy
 }
 
 // Attach marks a machine online. A duplicate connection for the same machine
@@ -215,7 +220,8 @@ func (h *Hub) Push(id int64, st proto.State, at time.Time) (Sample, bool) {
 		return Sample{}, false
 	}
 
-	s := Sample{At: at, State: st, SkewMS: st.AgentTimeMS - at.UnixMilli()}
+	s := Sample{At: at, State: st, SkewMS: st.AgentTimeMS - at.UnixMilli(),
+		MemTotal: m.Host.MemTotal, SwapTotal: m.Host.SwapTotal, DiskTotal: m.Host.DiskTotal}
 
 	// Speed comes from the counter delta rather than the agent's own rate: the
 	// agent cannot know how long the frame spent in flight, and the panel can.
@@ -308,12 +314,17 @@ func (h *Hub) View(id int64, now time.Time) (MachineView, bool) {
 
 // TrafficSnapshot copies every machine's traffic counters for persistence,
 // under the lock, so the caller can write to disk outside it.
-func (h *Hub) TrafficSnapshot() map[int64]Traffic {
+type trafficSnapshot struct {
+	Traffic
+	LastSeen time.Time
+}
+
+func (h *Hub) TrafficSnapshot() map[int64]trafficSnapshot {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	out := make(map[int64]Traffic, len(h.byID))
+	out := make(map[int64]trafficSnapshot, len(h.byID))
 	for id, m := range h.byID {
-		out[id] = m.Traffic
+		out[id] = trafficSnapshot{Traffic: m.Traffic, LastSeen: m.LastSeen}
 	}
 	return out
 }

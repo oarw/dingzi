@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -176,6 +177,10 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if _, exists := s.hub.View(id, time.Now()); !exists {
+		writeErr(w, http.StatusNotFound, "机器不存在")
+		return
+	}
 	hours := atoiDefault(r.URL.Query().Get("hours"), 1)
 	if hours < 1 {
 		hours = 1
@@ -223,73 +228,84 @@ func (s *Server) handlePatchServer(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
-
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	view, exists := s.hub.View(id, time.Now())
+	if !exists {
+		writeErr(w, http.StatusNotFound, "机器不存在")
+		return
+	}
+	name, t := view.Name, view.Traffic
 	if body.Name != nil {
-		name := trimSpace(*body.Name)
+		name = trimSpace(*body.Name)
 		if name == "" || len([]rune(name)) > 64 {
 			writeErr(w, http.StatusBadRequest, "名称需要 1 到 64 个字符")
 			return
 		}
-		if err := s.store.Rename(ctx, id, name); err != nil {
-			respondStoreErr(w, s, err)
-			return
-		}
-		s.hub.Rename(id, name)
 	}
-
-	if body.Quota != nil || body.ResetDay != nil || body.CountMode != nil {
-		view, exists := s.hub.View(id, time.Now())
-		if !exists {
-			writeErr(w, http.StatusNotFound, "机器不存在")
+	if body.Quota != nil {
+		if *body.Quota > math.MaxInt64 {
+			writeErr(w, http.StatusBadRequest, "配额超出支持范围")
 			return
 		}
-		t := view.Traffic
-		if body.Quota != nil {
-			t.Quota = *body.Quota
-		}
-		if body.CountMode != nil {
-			// Rejected rather than defaulted: silently substituting a mode would
-			// measure something the operator did not choose and then alert on it.
-			if !ValidCountMode(*body.CountMode) {
-				writeErr(w, http.StatusBadRequest,
-					"流量口径只能是 sum、out 或 max")
-				return
-			}
-			t.CountMode = *body.CountMode
-		}
-		if body.ResetDay != nil {
-			if *body.ResetDay < 1 || *body.ResetDay > 31 {
-				writeErr(w, http.StatusBadRequest, "归零日需要在 1 到 31 之间")
-				return
-			}
-			if *body.ResetDay != t.ResetDay {
-				t.ResetDay = *body.ResetDay
-				// The cycle boundary moved, so recompute it now rather than
-				// waiting for the next sample to notice.
-				t.CycleStart = CycleStart(time.Now(), t.ResetDay)
-			}
-		}
-		if err := s.store.SetQuota(ctx, id, t.Quota, t.ResetDay, t.CountMode,
-			t.CycleStart); err != nil {
-			respondStoreErr(w, s, err)
-			return
-		}
-		s.hub.SetTraffic(id, func(dst *Traffic) {
-			dst.Quota, dst.ResetDay, dst.CountMode = t.Quota, t.ResetDay, t.CountMode
-			dst.CycleStart = t.CycleStart
-		})
+		t.Quota = *body.Quota
 	}
+	if body.CountMode != nil {
+		if !ValidCountMode(*body.CountMode) {
+			writeErr(w, http.StatusBadRequest, "流量口径只能是 sum、out 或 max")
+			return
+		}
+		t.CountMode = *body.CountMode
+	}
+	reset := false
+	if body.ResetDay != nil {
+		if *body.ResetDay < 1 || *body.ResetDay > 31 {
+			writeErr(w, http.StatusBadRequest, "归零日需要在 1 到 31 之间")
+			return
+		}
+		reset = *body.ResetDay != t.ResetDay
+		t.ResetDay = *body.ResetDay
+		if reset {
+			t.CycleStart = CycleStart(time.Now(), t.ResetDay)
+		}
+	}
+	var cycle int64
+	if !t.CycleStart.IsZero() {
+		cycle = t.CycleStart.Unix()
+	}
+	// Validate the complete request before a single atomic write.
+	err := s.store.affectOne(ctx, `UPDATE servers SET name=?, quota=?, reset_day=?, count_mode=?,
+ cycle_start=?, in_bytes=CASE WHEN ? THEN 0 ELSE in_bytes END,
+ out_bytes=CASE WHEN ? THEN 0 ELSE out_bytes END WHERE id=?`,
+		name, t.Quota, t.ResetDay, t.CountMode, cycle, reset, reset, id)
+	if err != nil {
+		respondStoreErr(w, s, err)
+		return
+	}
+	s.hub.Rename(id, name)
+	s.hub.SetTraffic(id, func(dst *Traffic) {
+		dst.Quota, dst.ResetDay, dst.CountMode = t.Quota, t.ResetDay, t.CountMode
+		if reset {
+			dst.CycleStart, dst.InBytes, dst.OutBytes = t.CycleStart, 0, 0
+		}
+	})
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 
 	if err := s.store.DeleteMachine(ctx, id); err != nil {
 		respondStoreErr(w, s, err)
@@ -301,6 +317,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if c := s.hub.Remove(id); c != nil {
 		c.closeWith("this machine was removed from the panel")
 	}
+	s.terminals.closeMachine(id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

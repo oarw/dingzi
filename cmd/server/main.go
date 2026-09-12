@@ -48,6 +48,9 @@ func run() error {
 		"allow web terminals; agents must also be started with --allow-terminal")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *interval < .5 || *interval > 30 || *retentionDays < 1 || *retentionDays > 365 {
+		return errors.New("interval must be 0.5-30 seconds and retention-days must be 1-365")
+	}
 
 	if *showVersion {
 		fmt.Println("dingzi-server", version)
@@ -88,7 +91,9 @@ func run() error {
 		os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go srv.Maintain(ctx)
+	maintained := make(chan struct{})
+	go func() { defer close(maintained); srv.Maintain(ctx) }()
+	defer func() { stop(); srv.CloseConnections(); <-maintained }()
 
 	httpSrv := &http.Server{
 		Addr:    *listen,
