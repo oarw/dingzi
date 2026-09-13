@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,7 +30,7 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request) {
 	// Authenticate before upgrading. A rejected agent then gets a readable HTTP
 	// 401 in its logs instead of an opaque closed WebSocket.
 	if !s.authAgent(r) {
-		s.log.Warn("agent rejected: bad secret", slog.String("ip", clientIP(r)))
+		s.log.Warn("agent rejected: invalid or revoked credential", slog.String("ip", clientIP(r)))
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -54,8 +53,20 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if hello.UUID != r.Header.Get(proto.AgentUUIDHeader) {
+		c.closeWith("机器身份与凭证不匹配")
+		return
+	}
+	s.identityMu.Lock()
+	if err := s.store.bindCredential(r.Context(), hello.UUID,
+		strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")); err != nil {
+		s.identityMu.Unlock()
+		c.closeWith("机器凭证已吊销或不匹配")
+		return
+	}
 	m, err := s.register(hello)
 	if err != nil {
+		s.identityMu.Unlock()
 		s.log.Error("registering agent failed", slog.Any("error", err))
 		c.closeWith("the panel could not record this machine")
 		return
@@ -68,10 +79,12 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request) {
 		Interval:     s.opts.Interval,
 		ServerTimeMS: time.Now().UnixMilli(),
 	}); err != nil {
+		s.identityMu.Unlock()
 		return
 	}
 
 	s.hub.Attach(m.ID, c)
+	s.identityMu.Unlock()
 	defer s.hub.Detach(m.ID, c)
 
 	s.log.Info("agent connected",
@@ -83,19 +96,6 @@ func (s *Server) serveAgent(w http.ResponseWriter, r *http.Request) {
 
 	go s.pingAgent(c)
 	s.readAgent(c)
-}
-
-// authAgent checks the shared agent secret.
-func (s *Server) authAgent(r *http.Request) bool {
-	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if got == "" {
-		// Query fallback for environments where a header cannot be set. The
-		// header is preferred because query strings are recorded in access logs.
-		got = r.URL.Query().Get("secret")
-	}
-	// Constant-time: a length-independent comparison leaks the secret one byte
-	// at a time to anyone who can measure response timing.
-	return subtle.ConstantTimeCompare([]byte(got), []byte(s.opts.AgentSecret)) == 1
 }
 
 // handshake reads and validates the agent's first frame.

@@ -83,6 +83,9 @@ func (e *fatalError) Error() string { return e.msg }
 // Run connects and reports until ctx is cancelled or the server rejects the
 // agent fatally.
 func (c *Client) Run(ctx context.Context) error {
+	if err := c.cfg.EnsureToken(); err != nil {
+		return err
+	}
 	backoff := backoffMin
 	for {
 		start := time.Now()
@@ -192,8 +195,11 @@ func (c *Client) session(ctx context.Context) error {
 	defer cancel()
 
 	errc := make(chan error, 2)
-	go func() { errc <- c.readLoop(sessCtx, conn) }()
-	go func() { errc <- c.reportLoop(sessCtx, welcome.Interval) }()
+	var loops sync.WaitGroup
+	loops.Add(2)
+	go func() { defer loops.Done(); errc <- c.readLoop(sessCtx, conn) }()
+	go func() { defer loops.Done(); errc <- c.reportLoop(sessCtx, welcome.Interval) }()
+	defer func() { cancel(); conn.Close(); loops.Wait() }()
 
 	select {
 	case err := <-errc:
@@ -219,7 +225,9 @@ func (c *Client) dial(ctx context.Context) (*websocket.Conn, error) {
 	// The secret travels in a header, not the query string: query strings land
 	// in proxy and server access logs.
 	h := http.Header{}
-	h.Set("Authorization", "Bearer "+c.cfg.Secret)
+	h.Set("Authorization", "Bearer "+c.cfg.Token)
+	h.Set(proto.AgentUUIDHeader, c.cfg.UUID)
+	h.Set(proto.RegistrationHeader, c.cfg.Secret)
 	h.Set("User-Agent", "dingzi-agent/"+c.version)
 
 	conn, resp, err := d.DialContext(ctx, c.cfg.Server, h)
@@ -229,7 +237,7 @@ func (c *Client) dial(ctx context.Context) (*websocket.Conn, error) {
 			if resp.StatusCode == http.StatusUnauthorized ||
 				resp.StatusCode == http.StatusForbidden {
 				return nil, &fatalError{msg: fmt.Sprintf(
-					"HTTP %d — check the agent secret", resp.StatusCode)}
+					"HTTP %d: check registration key, saved UUID/token, revocation status, and matching panel/agent versions", resp.StatusCode)}
 			}
 			return nil, fmt.Errorf("dial %s: HTTP %d: %w", c.cfg.Server, resp.StatusCode, err)
 		}
@@ -286,6 +294,11 @@ func (c *Client) send(typ, id string, payload any) error {
 
 // readLoop handles inbound frames for the life of the connection.
 func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn) error {
+	ctx, cancel := context.WithCancel(ctx)
+	var work sync.WaitGroup
+	defer func() { cancel(); work.Wait() }()
+	tasks := make(chan struct{}, 16)
+	terminals := make(chan struct{}, 4)
 	for {
 		var env proto.Envelope
 		if err := conn.ReadJSON(&env); err != nil {
@@ -313,7 +326,13 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn) error {
 			}
 			// Each task runs in its own goroutine: a 5-second ping must not
 			// delay the metrics stream or another task behind it.
-			go c.runTask(ctx, env.ID, t)
+			select {
+			case tasks <- struct{}{}:
+				work.Add(1)
+				go func(id string, t proto.Task) { defer work.Done(); defer func() { <-tasks }(); c.runTask(ctx, id, t) }(env.ID, t)
+			default:
+				c.reply(env.ID, proto.TaskResult{MonitorID: t.MonitorID, Error: "探针检查并发已满"})
+			}
 		case proto.TypeTerminalOpen:
 			var open proto.TerminalOpen
 			if err := proto.Decode(&env, &open); err != nil {
@@ -323,7 +342,17 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn) error {
 			// Its own goroutine, and it lives for the whole session: a terminal
 			// must not hold up the metrics stream, which is the reason the pty
 			// travels on a separate connection in the first place.
-			go c.handleTerminalOpen(ctx, env.ID, open)
+			select {
+			case terminals <- struct{}{}:
+				work.Add(1)
+				go func(id string, open proto.TerminalOpen) {
+					defer work.Done()
+					defer func() { <-terminals }()
+					c.handleTerminalOpen(ctx, id, open)
+				}(env.ID, open)
+			default:
+				_ = c.send(proto.TypeTerminalResult, env.ID, proto.TerminalResult{Error: "探针终端并发已满"})
+			}
 		case proto.TypeError:
 			var e proto.ErrorPayload
 			_ = proto.Decode(&env, &e)

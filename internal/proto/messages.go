@@ -117,6 +117,11 @@ type Welcome struct {
 	ServerTimeMS int64 `json:"server_time_ms"`
 }
 
+const (
+	AgentUUIDHeader    = "X-Dingzi-Agent-UUID"
+	RegistrationHeader = "X-Dingzi-Registration-Key"
+)
+
 // ErrorPayload is the body of a [TypeError] frame.
 type ErrorPayload struct {
 	Message string `json:"message"`

@@ -57,8 +57,10 @@ type pendingTerminal struct {
 
 // terminalRegistry tracks pending and active terminal sessions.
 type terminalRegistry struct {
-	mu      sync.Mutex
-	pending map[string]*pendingTerminal
+	mu          sync.Mutex
+	pending     map[string]*pendingTerminal
+	owned       map[string]int64
+	connections map[string][]*websocket.Conn
 	// perMachine counts both pending and active sessions, so the cap cannot be
 	// bypassed by opening many at once and racing the agent dial-backs.
 	perMachine map[int64]int
@@ -67,8 +69,10 @@ type terminalRegistry struct {
 
 func newTerminalRegistry() *terminalRegistry {
 	return &terminalRegistry{
-		pending:    map[string]*pendingTerminal{},
-		perMachine: map[int64]int{},
+		pending:     map[string]*pendingTerminal{},
+		owned:       map[string]int64{},
+		connections: map[string][]*websocket.Conn{},
+		perMachine:  map[int64]int{},
 	}
 }
 
@@ -89,6 +93,11 @@ func (tr *terminalRegistry) reserve(machineID int64) (string, *pendingTerminal, 
 	for t, p := range tr.pending {
 		if now.Sub(p.created) > terminalTokenTTL {
 			delete(tr.pending, t)
+			delete(tr.owned, t)
+			for _, conn := range tr.connections[t] {
+				conn.Close()
+			}
+			delete(tr.connections, t)
 			tr.drop(p.machineID)
 		}
 	}
@@ -106,6 +115,7 @@ func (tr *terminalRegistry) reserve(machineID int64) (string, *pendingTerminal, 
 		deliver:   make(chan *websocket.Conn, 1),
 	}
 	tr.pending[tok] = p
+	tr.owned[tok] = machineID
 	tr.perMachine[machineID]++
 	tr.total++
 	return tok, p, nil
@@ -124,6 +134,11 @@ func (tr *terminalRegistry) claim(tok string) (*pendingTerminal, bool) {
 	}
 	delete(tr.pending, tok)
 	if time.Since(p.created) > terminalTokenTTL {
+		delete(tr.owned, tok)
+		for _, conn := range tr.connections[tok] {
+			conn.Close()
+		}
+		delete(tr.connections, tok)
 		tr.drop(p.machineID)
 		return nil, false
 	}
@@ -134,10 +149,46 @@ func (tr *terminalRegistry) claim(tok string) (*pendingTerminal, bool) {
 func (tr *terminalRegistry) release(tok string, machineID int64) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
+	if _, ok := tr.owned[tok]; !ok {
+		return
+	}
+	delete(tr.owned, tok)
+	for _, conn := range tr.connections[tok] {
+		conn.Close()
+	}
+	delete(tr.connections, tok)
 	if _, ok := tr.pending[tok]; ok {
 		delete(tr.pending, tok)
 	}
 	tr.drop(machineID)
+}
+
+func (tr *terminalRegistry) track(tok string, conn *websocket.Conn) bool {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if _, ok := tr.owned[tok]; !ok {
+		conn.Close()
+		return false
+	}
+	tr.connections[tok] = append(tr.connections[tok], conn)
+	return true
+}
+
+func (tr *terminalRegistry) closeMachine(id int64) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	for tok, machineID := range tr.owned {
+		if id != 0 && machineID != id {
+			continue
+		}
+		for _, conn := range tr.connections[tok] {
+			conn.Close()
+		}
+		delete(tr.connections, tok)
+		delete(tr.pending, tok)
+		delete(tr.owned, tok)
+		tr.drop(machineID)
+	}
 }
 
 // drop decrements the counters. Caller holds the lock.
@@ -224,6 +275,12 @@ func (s *Server) handleBrowserTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.terminals.release(tok, id)
+	if !s.terminals.track(tok, conn) {
+		return
+	}
+	if _, exists := s.hub.View(id, time.Now()); !exists {
+		return
+	}
 
 	ip := clientIP(r)
 	// Audit line before the shell exists, so an attempt is recorded even if it
@@ -294,6 +351,12 @@ func (s *Server) handleAgentTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	view, exists := s.hub.View(pend.machineID, time.Now())
+	if !exists || view.UUID != r.Header.Get(proto.AgentUUIDHeader) {
+		s.terminals.release(tok, pend.machineID)
+		http.Error(w, "wrong machine", http.StatusForbidden)
+		return
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.terminals.release(tok, pend.machineID)
@@ -303,6 +366,7 @@ func (s *Server) handleAgentTerminal(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case pend.deliver <- conn:
+		s.terminals.track(tok, conn)
 		// The browser handler owns the connection now and will close it.
 	default:
 		conn.Close()

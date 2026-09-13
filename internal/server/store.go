@@ -52,7 +52,11 @@ func OpenStore(path string, log *slog.Logger) (*Store, error) {
 	dsn := path + "?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=foreign_keys(ON)"
+		"&_pragma=foreign_keys(ON)" +
+		"&_txlock=immediate"
+	// Every explicit transaction here writes. Reserve the writer before its
+	// first SELECT, otherwise a sample flush can invalidate a configuration
+	// transaction's WAL snapshot. busy_timeout cannot retry that upgrade.
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -116,7 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_samples_server_at ON samples(server_id, at);
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	return nil
+	return s.migrateFeatures()
 }
 
 // Close drains pending writes and closes the database.
@@ -246,8 +250,9 @@ func (s *Store) insertBatch(batch []queued) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO samples (server_id, at, cpu, mem_used, swap_used, disk_used, net_in, net_out, load1)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+INSERT INTO samples (server_id, at, cpu, mem_used, swap_used, disk_used, net_in, net_out, load1,
+    mem_total, swap_total, disk_total, net_in_speed, net_out_speed)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM servers WHERE id = ?)`)
 	if err != nil {
 		return err
 	}
@@ -257,7 +262,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		st := q.sample.State
 		if _, err := stmt.ExecContext(ctx, q.id, q.sample.At.Unix(),
 			st.CPU, st.MemUsed, st.SwapUsed, st.DiskUsed,
-			st.NetInTransfer, st.NetOutTransfer, st.Load1); err != nil {
+			st.NetInTransfer, st.NetOutTransfer, st.Load1,
+			q.sample.MemTotal, q.sample.SwapTotal, q.sample.DiskTotal,
+			q.sample.NetInSpeed, q.sample.NetOutSpeed, q.id); err != nil {
 			return err
 		}
 	}

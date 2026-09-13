@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -31,6 +33,7 @@ type Config struct {
 	// Secret authenticates registration. Treat it as eventually-leaked: it is
 	// present on every monitored machine.
 	Secret string `yaml:"secret"`
+	Token  string `yaml:"token,omitempty"`
 
 	// UUID is this machine's stable identity, generated on first run and
 	// persisted. It survives agent reinstalls, so the panel does not accumulate
@@ -186,7 +189,7 @@ func (c *Config) Validate() error {
 	if c.Server == "" {
 		return errors.New("no server: pass --server https://panel.example.com")
 	}
-	if c.Secret == "" {
+	if c.Secret == "" && c.Token == "" {
 		return errors.New("no secret: pass --secret <agent key from the panel>")
 	}
 	ws, err := WebSocketURL(c.Server)
@@ -220,7 +223,10 @@ func WebSocketURL(base string) (string, error) {
 	if u.Host == "" {
 		return "", fmt.Errorf("server URL %q has no host", base)
 	}
-	u.Path = strings.TrimSuffix(u.Path, "/") + proto.Path
+	u.Path = strings.TrimSuffix(u.Path, "/")
+	if !strings.HasSuffix(u.Path, proto.Path) {
+		u.Path += proto.Path
+	}
 	u.RawQuery, u.Fragment = "", ""
 	return u.String(), nil
 }
@@ -241,6 +247,26 @@ func (c *Config) EnsureUUID() (bool, error) {
 		return true, fmt.Errorf("persist new UUID: %w", err)
 	}
 	return true, nil
+}
+
+// Persist before enrollment so a dropped handshake never loses this identity's proof.
+func (c *Config) EnsureToken() error {
+	if c.Token != "" {
+		b, err := base64.RawURLEncoding.DecodeString(c.Token)
+		if err != nil || len(b) != 32 {
+			return errors.New("invalid agent token in config")
+		}
+		return nil
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	c.Token = base64.RawURLEncoding.EncodeToString(b)
+	if c.path != "" {
+		return c.Save()
+	}
+	return nil
 }
 
 // Save writes the config atomically: a temporary file in the same directory,

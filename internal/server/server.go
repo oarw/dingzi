@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/oarw/dingzi/internal/proto"
@@ -35,12 +36,16 @@ type Options struct {
 
 // Server is the panel.
 type Server struct {
-	opts      Options
-	log       *slog.Logger
-	store     *Store
-	hub       *Hub
-	sessions  *sessionStore
-	terminals *terminalRegistry
+	opts       Options
+	log        *slog.Logger
+	store      *Store
+	hub        *Hub
+	sessions   *sessionStore
+	terminals  *terminalRegistry
+	persistMu  sync.Mutex
+	controlMu  sync.Mutex
+	identityMu sync.Mutex
+	services   *serviceEngine
 }
 
 // New builds a panel and loads the known fleet.
@@ -58,6 +63,7 @@ func New(opts Options, store *Store, log *slog.Logger) (*Server, error) {
 		sessions:  newSessionStore(),
 		terminals: newTerminalRegistry(),
 	}
+	s.hub.sampleTimeout = max(staleAfter, time.Duration(3*opts.Interval*float64(time.Second)))
 
 	// Load the fleet up front so a restart does not appear to lose every
 	// machine until each agent happens to reconnect.
@@ -68,6 +74,7 @@ func New(opts Options, store *Store, log *slog.Logger) (*Server, error) {
 		return nil, err
 	}
 	s.hub.Load(machines)
+	s.services = newServiceEngine(s)
 	log.Info("panel ready", slog.Int("known_machines", len(machines)))
 	return s, nil
 }
@@ -96,6 +103,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/servers/{id}", s.requireAuth(s.handleDeleteServer))
 	mux.HandleFunc("GET /api/v1/servers/{id}/terminal",
 		s.requireAuth(s.handleBrowserTerminal))
+	s.featureRoutes(mux)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -157,6 +165,10 @@ func (s *Server) onHostUpdate(id int64, host proto.Host) {
 
 // Maintain runs the panel's periodic work until ctx is cancelled.
 func (s *Server) Maintain(ctx context.Context) {
+	var services sync.WaitGroup
+	services.Add(1)
+	go func() { defer services.Done(); s.services.run(ctx) }()
+	defer services.Wait()
 	traffic := time.NewTicker(30 * time.Second)
 	defer traffic.Stop()
 	prune := time.NewTicker(time.Hour)
@@ -183,8 +195,22 @@ func (s *Server) Maintain(ctx context.Context) {
 	}
 }
 
+// CloseConnections terminates hijacked WebSockets, which HTTP Shutdown does not own.
+func (s *Server) CloseConnections() {
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
+	for _, v := range s.hub.Snapshot(time.Now()) {
+		if c, ok := s.hub.Conn(v.ID); ok {
+			c.close()
+		}
+	}
+	s.terminals.closeMachine(0)
+}
+
 // persistTraffic writes the cycle counters.
 func (s *Server) persistTraffic(ctx context.Context) {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	// Snapshot under the hub lock, write outside it. Holding the lock across
 	// disk I/O would queue every agent's sample behind the slowest write.
 	snap := s.hub.TrafficSnapshot()

@@ -3,24 +3,36 @@
 > 环境即将销毁时的工作交接。记录**当前进度**、**已做的技术决策及原因**、**下一步计划**，
 > 以及几个如果不知道会踩坑的地方。
 
-最后更新：2026-08-30 · 分支 `main` · 仓库 `oarw/dingzi`（私有）
+最后更新：2026-09-13 · 分支 `feat/complete-monitoring` · 仓库 `oarw/dingzi`
 
 ---
 
 ## 1. 当前状态
 
-**已完成并推送**（`go build ./...` 和 `go vet ./...` 均通过）：
+本轮复审基于 `783965f`，主要功能变更在 `ef61397`。`v0.1.1` 是升级对照版本，
+它的 Agent 认证协议与本分支不兼容；面板、Agent 和安装脚本必须配套，见
+[升级与运维说明](docs/UPGRADING.md)。
 
-| 文件 | 说明 |
+本轮已在 Windows 远程构建环境通过完整 Go 测试、race 和 vet。逐项修复、浏览器验收及
+交叉编译的实际结果记录在 [代码复审](docs/REVIEW_2026-09-13.md)。本文记录合并前的本地复审状态；
+后续 CI 与发布结果见仓库的 [Actions](https://github.com/oarw/dingzi/actions) 和
+[Releases](https://github.com/oarw/dingzi/releases)，本地验证不能替代对应提交的 CI 结果。
+
+| 模块 | 实际状态 |
 | --- | --- |
-| `README.md` | 项目定位、对比哪吒 v0 的改进点、架构图、快速开始 |
-| `internal/proto/messages.go` | 线协议：`Envelope` 信封、消息类型常量、`Hello`/`Welcome`/`ErrorPayload`、`Encode`/`Decode` |
-| `internal/proto/metrics.go` | `Host`（静态信息）、`State`（指标采样）、`Host.Uptime()` |
-| `go.mod` / `go.sum` | 模块定义，依赖已解析锁定 |
-| `.gitignore` / `.gitattributes` / `LICENSE` | 忽略产物与运行时数据；强制 LF 换行；GNU AGPLv3+ |
+| 协议和探针 | 已实现资源采集、自动注册、持久 UUID、心跳和重连；Ping/TCP/HTTP 执行器已有 |
+| 面板服务端 | 已实现连接管理、有界环形缓冲、SQLite 批量存储、历史查询和定期清理 |
+| 流量 | 已实现账期累计、配额、归零日、sum/out/max 口径 |
+| 实时看板 | 真实数据每 2 秒刷新；断连明确提示，保留最后一次真实数据或显示空状态 |
+| 管理操作 | 登录、退出、改名、删除、配额和 UTC 账期均有 API 与操作界面 |
+| 网页终端 | 前后端及 Unix 集成测试已有；默认由 agent 拒绝，支持独立连接、一次性 token、并发限制和审计 |
+| 历史图表 | 机器详情可查看资源、负载、网络历史；按时间范围查询聚合，处理空数据及旧字段缺失 |
+| 服务监控 | 已实现 HTTP/TCP/Ping 检查、定时调度、有界并发、结果存储、可用率统计和完整页面 |
+| 告警通知 | 已实现规则、通知渠道（Webhook/Telegram）、事件记录、自动评估和重试发送 |
+| 安装发布 | 已有 POSIX Agent 安装脚本、systemd/OpenRC、校验和及自动预发布/正式发布 |
+| 单机身份 | Agent 连接前生成并保存独立凭证；面板存 SHA-256 哈希，常量时间比较，删除时吊销 |
 
-**完成度：约 10%。** 只有协议层，两个二进制（agent / server）都还没开始写。
-当前代码能编译是因为 `internal/proto` 不依赖任何第三方库。
+主要功能均已有实现；用下面的完成清单和验证记录追踪状态，不再使用估算完成百分比。
 
 ---
 
@@ -33,7 +45,7 @@
 哪吒 v0 最大的坑就是 gRPC：过 Cloudflare 要开特殊开关且经常失效，nginx 反代要额外配
 `grpc_pass`，`--tls` / `--insecure` 语义容易配反，而且要额外占一个端口。
 
-WebSocket over HTTPS 和普通网站流量无区别，CDN / 反代零特殊配置，和 Web UI 共用一个端口，
+WebSocket over HTTPS 使用常规 WebSocket 反代配置（Upgrade、Connection、Host），和 Web UI 共用一个端口，
 出问题能直接用浏览器 devtools 看帧内容。代价是 JSON 比 protobuf 大，但按 1 秒 1 个采样点
 × 50 台机器算也只有几 KB/s，完全不是瓶颈。**同时也不需要 protoc**（当前环境也确实没装）。
 
@@ -102,9 +114,9 @@ agent 重启或丢帧时，增量模型会把速率算错并且污染后续数�
 2. 饱和度数字（CPU/内存/交换/硬盘）：中等，超阈值变色
 3. 系统信息 / 未设配额等：灰字
 
-### 2A.2 流量按月度累计，可设配额 —— 唯一需要改数据模型的决策
+### 2A.2 流量按月度累计，可设配额
 
-服务端要新增持久计数表。核心是**回退检测**：
+服务端持久保存账期累计量和上次原始计数器。核心是**回退检测**：
 
 ```go
 delta := raw_now - raw_last
@@ -117,15 +129,15 @@ raw_last = raw_now
 
 误差上界是**一个上报间隔**（丢掉最后一次上报到重启之间的流量），可接受，实现时写进注释。
 
-⚠️ **由此要改 proto 语义**：`State.NetInTransfer` / `NetOutTransfer` 从「自 agent 启动以来」
-改成**上报操作系统原始累计计数器**。原因：如果 agent 自己减基线，agent 也得做一遍回退检测，
+当前 `State.NetInTransfer` / `NetOutTransfer` **上报操作系统原始累计计数器**。
+原因：如果 agent 自己减基线，agent 也得做一遍回退检测，
 两处各有一份同样的易错逻辑；上报原始值则回退检测只在服务端做一次，而服务端算网速本来就需要增量。
 
 配额有两个**必须可配**的点，否则进度条会说谎：
 
 - `CountMode`：`sum | out | max`。计费口径因服务商而异（Vultr/Linode 只算出站，有的进出相加）。
   默认 `sum`——最保守，预警最早。
-- `ResetDay`：1–31。VPS 账期不一定是 1 号。**31 号遇到 2 月要夹到当月最后一天。**
+- `ResetDay`：1–31，以 UTC 计算。VPS 账期不一定是 1 号。**31 号遇到 2 月要夹到当月最后一天。**
 
 ```go
 type QuotaConfig struct {
@@ -147,16 +159,17 @@ type QuotaConfig struct {
 ping/TCP/HTTP 检查已覆盖监控需求，而 exec 意味着面板一旦被攻破等于**全机队 RCE**，
 和「尽可能安全」直接冲突。
 
-作者未明确反对，按不做推进。若日后要加：agent 端 `--allow-exec` 显式开启 + 面板二次确认，
-默认关闭。
+当前没有 `exec` 任务类型。网页终端已经实现，它同样能执行命令，但必须由每台 Agent
+显式开启 `--allow-terminal`；面板还可通过 `--terminal=false` 统一关闭。不要把这一设计
+描述成“没有任何远程命令执行能力”。
 
 ### 2A.5 安全基线
 
 - **密钥只生成、不让用户选**：首次启动打印随机管理员密码和 agent 密钥。没有默认密码可忘记改，
   也不需要写弱密码校验。
-- **agent 密钥按「终将泄露」对待**：它只认证*注册*。泄露的后果限制在「能注册假机器」（可见、可删），
-  而不是「能读全机队数据或下发任务」。注册后每个 agent 拿自己的 token，吊销一台不必轮换全部。
-- session `HttpOnly` + `Secure` + `SameSite=Lax`；bcrypt 存密码；密钥比较用**常量时间**；
+- **agent 密钥只认证注册**：Agent 自己生成并在连接前保存 token；共享密钥不能替换已绑定的凭证，
+  吊销一台不必轮换全部。机器列表和历史本来就是公开读接口，管理权限来自管理员 session。
+- session `HttpOnly` + `SameSite=Lax`，HTTPS 部署启用 `--secure-cookie`；bcrypt 存密码；密钥比较用**常量时间**；
   登录限速；SQL 全部参数化。
 - **UI 不引 CDN**，第三方脚本永远碰不到面板——这也是 sparkline 要手写内联 SVG 的原因之一。
 
@@ -176,64 +189,59 @@ ping/TCP/HTTP 检查已覆盖监控需求，而 exec 意味着面板一旦被攻
 
 ---
 
-## 3. 下一步计划
+## 3. 功能完成情况与后续验证
 
-建议按顺序做，每步都能独立编译验证。
+下面记录当前实现；发布前还需由目标环境验证服务管理器和 Unix 终端。
 
-### 第一优先：打通端到端最小链路
+### 本轮实施与验收
 
-1. **`internal/proto/task.go`** —— 补 `Task` / `TaskResult` 结构体。
-   ⚠️ 当前 `messages.go` 的文档注释里已经引用了 `[Task]` 和 `[TaskResult]`，但类型还没定义，
-   godoc 链接是断的。任务类型至少要有：`ping`(ICMP) / `tcp` / `http` / `exec`。
-2. **`internal/agent/`**
-   - `config.go` 配置加载，优先级：命令行 > 环境变量 > 配置文件；**原子写入**（临时文件 + rename）
-   - `collect.go` 用 gopsutil 采集，填充 `proto.Host` 和 `proto.State`
-   - `client.go` WebSocket 客户端：指数退避 + 抖动重连、双向心跳、收到 `Welcome` 后按
-     `Interval` 上报。UUID 首次生成并持久化。
-3. **`internal/server/`**
-   - `hub.go` 连接管理 + 每台机器**固定长度环形缓冲**存活跃指标（内存有上界）
-   - `store.go` SQLite：WAL 模式，**写入串行化到单个 writer goroutine**（避免锁竞争丢数据）
-   - `api.go` REST 接口，用标准库 `net/http` 的 `ServeMux`（Go 1.22+ 支持 `GET /x/{id}` 路由，
-     不需要引第三方框架）
-   - `auth.go` bcrypt 密码 + session cookie
-4. **`cmd/server/main.go`** / **`cmd/agent/main.go`** 组装并加参数解析
-5. **Web UI** `internal/server/web/`，用 `embed` 内嵌进二进制。
-   不要引 CDN 依赖，sparkline 图自己写内联 SVG（约 100 行）即可，保证离线可用。
+- [x] 核对代码与 CI 配置，更新过时的交接记录。
+- [x] 管理界面：登录/退出、机器改名/删除、配额账期设置；终端接入登录状态。
+- [x] 历史图表：机器详情、时间范围、CPU/内存/交换/磁盘/负载/网络历史；正确显示空数据和断连。
+- [x] 服务监控：HTTP/TCP/ICMP 配置、指定执行探针、有界并发调度、结果持久化、可用率和延迟。
+- [x] 告警：指标/离线/配额/服务规则、持续时间、触发/恢复事件、Webhook/Telegram、通知测试与发送状态。
+- [x] 单机凭证：Agent 连接前生成并保存独立凭证，首次接入绑定；已绑定 UUID 拒绝无凭证冒用，删除时吊销。
+- [x] 稳定性：流量账期边界、数据库迁移与清理、调度取消/超时、告警去重/恢复、鉴权与端到端回归。
+- [x] 补充失败路径回归：SQLite 并发写、慢采样/首报超时/过期指标重连、UTC 月界、HTTP 截断、安装失败、密码恢复。
+- [x] 真实 Agent 桌面/手机浏览器验收；完整 Go 测试、race、vet、9 目标交叉编译和工作流检查。
+- [x] 更新 README、产品说明、配置示例和升级步骤；将实际验证结果集中记录。
 
-### 第二优先
+### 本轮实现约定与完成情况
 
-6. 服务监控（HTTP/TCP/ICMP 定时检查 + 可用率统计）
-7. 告警规则 + 通知（webhook / Telegram）
-8. 在线终端（WebSocket 转发 pty）
-9. `.github/workflows/` CI：build + vet + test，**Go 版本钉 1.25**；交叉编译 release 产物
-10. 安装脚本 + systemd unit
+均已按约定实现：
+
+- ✓ 沿用单二进制、标准库 HTTP、纯 Go SQLite、内嵌静态资源，无前端构建步骤和 CDN。
+- ✓ 每条服务监控指定一台探针；不可用探针记录为未知，不伪装成远端服务故障。
+- ✓ 告警采用结构化字段（指标、阈值、持续时间、通知渠道），不引入可执行表达式。
+- ✓ 保留原始指标默认 30 天，查询时 SQL 聚合；监控结果和事件通过 Prune 定期清理。
+- ✓ 页面延续既有卡片和主题，新增管理视图及详情；不以演示数据掩盖连接错误。
+
+测试覆盖凭证绑定/吊销、监控调度/修订隔离、告警评估/去重、流量周期、历史聚合、数据清理等路径。
+安装测试只使用临时目录和本地下载桩；浏览器测试只连接临时面板、真实本机 Agent 和本地通知接收端。
+运行方法见 [CONTRIBUTING.md](CONTRIBUTING.md)。Windows 的测试结果不包含 Unix 真实 PTY 测试。
+
+后续发布验证：在 Linux CI 运行含 PTY 的测试，在目标机器检查 systemd/OpenRC 安装及重启，
+并确认面板和 Agent 来自同一提交或同一轮发布。这里没有生产机队规模的内存或长期稳定性结论。
 
 ---
 
 ## 4. 坑位提醒
 
-### ⚠️ 现在不要跑 `go mod tidy`
-
-`go.mod` 里的依赖是**预先解析好但还没被任何代码 import** 的（目前只有 `internal/proto`，
-它不依赖第三方库）。现在跑 `go mod tidy` 会把这些依赖全部删掉，白费前面的版本调研：
-
-```
-github.com/shirou/gopsutil/v4          指标采集
-github.com/gorilla/websocket           传输层
-modernc.org/sqlite                     存储（纯 Go）
-gopkg.in/yaml.v3                       配置文件
-golang.org/x/crypto/bcrypt             密码哈希
-github.com/prometheus-community/pro-bing  ICMP ping
-github.com/google/uuid                 agent 身份
-```
-
-**等写完 import 这些包的代码之后再 tidy。** 届时它还会把 `// indirect` 标记修正成直接依赖
-（现在全被标成 indirect 是因为确实没有代码引用）。
+依赖现在均已有实际引用，早期“不要 tidy”的限制已失效。只有依赖发生变化时才整理模块文件，
+避免无关版本升级。配置文件损坏时应明确失败，不得自动生成新密钥导致机队全部失联。
 
 ### 其他
 
-- 本机 Go 是 1.24.13，但 `go.mod` 要求 1.25.0，所以**每次构建都会自动下载 1.25 工具链**
-  （能正常工作，只是第一次慢）。CI 里装 Go 1.25 就没这个问题。
+- 2026-09-08 已核查 GitHub Contributors 残留：全部分支和标签的 23 个提交只有
+  `oarw <91735303+oarw@users.noreply.github.com>`，没有 `kiro` 或共同作者标记。
+  远端 `/repos/oarw/dingzi/contributors` 与 `/stats/contributors` 均只有 `oarw`（18 个计入统计的提交），
+  但网页 `https://github.com/oarw/dingzi/_sidebar` 仍返回 `contributorCount: 2` 和 `kiro`，
+  独立浏览器也能复现。这是 GitHub 展示统计与当前历史不一致，并非本地修改未推送。
+  没有再次重写正确的历史；[GitHub 官方说明](https://docs.github.com/en/repositories/viewing-activity-and-data-for-your-repository/viewing-a-projects-contributors#contributor-data-is-stale-after-history-changes)
+  要求等待约 24 小时，仍异常则由仓库所有者联系 GitHub Support 清理。尚未代用户发送工单。
+
+- 本机启动器为 Go 1.24.13，实际使用缓存的 Go 1.25.0 工具链；只有首次缺失时才下载。
+- 路径在 `Desktop/pro`，按用户约定属于远程构建机器，可本地安装依赖、测试和编译，优先本地验证。
 - 环境没有 `protoc`。按 2.1 的决策本来也不需要。
 - 提交时 Git 会警告 `LF will be replaced by CRLF`，这是 Windows 下的正常现象，
   `.gitattributes` 已保证仓库里存的是 LF。
@@ -247,8 +255,8 @@ github.com/google/uuid                 agent 身份
 ```
 工作目录  C:\Users\runneradmin\Desktop\pro\dingzi
 平台      Windows Server 2025 (GitHub Actions runner)
-Go        1.24.13（go.mod 要求 1.25.0，自动下载）
-Node      v22.23.2（当前用不上，UI 不走构建步骤）
+Go        1.25.0（由 1.24.13 启动器自动选择）
+Node      可用于浏览器和 API 验证，UI 不走构建步骤
 gh        2.98.0，已登录 oarw
 protoc    未安装
 ```

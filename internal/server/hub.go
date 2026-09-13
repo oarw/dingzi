@@ -34,6 +34,9 @@ type Sample struct {
 	// between this sample and the previous one.
 	NetInSpeed  uint64
 	NetOutSpeed uint64
+	MemTotal    uint64
+	SwapTotal   uint64
+	DiskTotal   uint64
 }
 
 // ring is a fixed-size circular buffer of samples.
@@ -95,10 +98,13 @@ type Hub struct {
 	mu     sync.RWMutex
 	byID   map[int64]*Machine
 	byUUID map[string]*Machine
+	// Set before the hub is published; allow three configured report intervals
+	// while retaining the usual 30-second floor for fast-reporting agents.
+	sampleTimeout time.Duration
 }
 
 func NewHub() *Hub {
-	return &Hub{byID: map[int64]*Machine{}, byUUID: map[string]*Machine{}}
+	return &Hub{byID: map[int64]*Machine{}, byUUID: map[string]*Machine{}, sampleTimeout: staleAfter}
 }
 
 // Load seeds the hub from storage so a panel restart does not appear to lose
@@ -140,11 +146,13 @@ func (h *Hub) Put(m *Machine) *Machine {
 		existing.Name = m.Name
 		existing.Host = m.Host
 		existing.Version = m.Version
-		return existing
+		copy := *existing
+		return &copy
 	}
 	h.byID[m.ID] = m
 	h.byUUID[m.UUID] = m
-	return m
+	copy := *m
+	return &copy
 }
 
 // Attach marks a machine online. A duplicate connection for the same machine
@@ -215,7 +223,8 @@ func (h *Hub) Push(id int64, st proto.State, at time.Time) (Sample, bool) {
 		return Sample{}, false
 	}
 
-	s := Sample{At: at, State: st, SkewMS: st.AgentTimeMS - at.UnixMilli()}
+	s := Sample{At: at, State: st, SkewMS: st.AgentTimeMS - at.UnixMilli(),
+		MemTotal: m.Host.MemTotal, SwapTotal: m.Host.SwapTotal, DiskTotal: m.Host.DiskTotal}
 
 	// Speed comes from the counter delta rather than the agent's own rate: the
 	// agent cannot know how long the frame spent in flight, and the panel can.
@@ -261,8 +270,8 @@ type MachineView struct {
 	HasNow bool
 }
 
-// staleAfter is how long without a sample before a connected machine is
-// reported offline. A connection that is up while samples have stopped is not a
+// staleAfter is the minimum reporting deadline; slower configured intervals
+// allow three intervals. A connection that is up while samples have stopped is not a
 // working machine, and reporting it online is the specific lie that makes an
 // operator trust a green dot that means nothing.
 const staleAfter = 30 * time.Second
@@ -280,7 +289,9 @@ func (h *Hub) Snapshot(now time.Time) []MachineView {
 		// array is never written after publication.
 		v.Machine.samples = ring{}
 		v.Latest, v.HasNow = m.samples.latest()
-		if v.Online && v.HasNow && now.Sub(v.Latest.At) > staleAfter {
+		// A reconnect updates LastSeen, but cannot make an old sample fresh.
+		if v.Online && (now.Sub(m.LastSeen) > h.sampleTimeout ||
+			(v.HasNow && now.Sub(v.Latest.At) > h.sampleTimeout)) {
 			v.Online = false
 		}
 		out = append(out, v)
@@ -300,7 +311,8 @@ func (h *Hub) View(id int64, now time.Time) (MachineView, bool) {
 	v := MachineView{Machine: *m, Online: m.conn != nil}
 	v.Machine.samples = ring{}
 	v.Latest, v.HasNow = m.samples.latest()
-	if v.Online && v.HasNow && now.Sub(v.Latest.At) > staleAfter {
+	if v.Online && (now.Sub(m.LastSeen) > h.sampleTimeout ||
+		(v.HasNow && now.Sub(v.Latest.At) > h.sampleTimeout)) {
 		v.Online = false
 	}
 	return v, true
@@ -308,12 +320,17 @@ func (h *Hub) View(id int64, now time.Time) (MachineView, bool) {
 
 // TrafficSnapshot copies every machine's traffic counters for persistence,
 // under the lock, so the caller can write to disk outside it.
-func (h *Hub) TrafficSnapshot() map[int64]Traffic {
+type trafficSnapshot struct {
+	Traffic
+	LastSeen time.Time
+}
+
+func (h *Hub) TrafficSnapshot() map[int64]trafficSnapshot {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	out := make(map[int64]Traffic, len(h.byID))
+	out := make(map[int64]trafficSnapshot, len(h.byID))
 	for id, m := range h.byID {
-		out[id] = m.Traffic
+		out[id] = trafficSnapshot{Traffic: m.Traffic, LastSeen: m.LastSeen}
 	}
 	return out
 }
