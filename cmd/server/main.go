@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 
 	"github.com/oarw/dingzi/internal/server"
@@ -48,10 +50,12 @@ func run() error {
 		"allow web terminals; agents must also be started with --allow-terminal")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
-
 	if *showVersion {
 		fmt.Println("dingzi-server", version)
 		return nil
+	}
+	if math.IsNaN(*interval) || *interval < .5 || *interval > 30 || *retentionDays < 1 || *retentionDays > 365 {
+		return errors.New("interval must be 0.5-30 seconds and retention-days must be 1-365")
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
@@ -88,7 +92,9 @@ func run() error {
 		os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go srv.Maintain(ctx)
+	maintained := make(chan struct{})
+	go func() { defer close(maintained); srv.Maintain(ctx) }()
+	defer func() { stop(); srv.CloseConnections(); <-maintained }()
 
 	httpSrv := &http.Server{
 		Addr:    *listen,
@@ -141,6 +147,21 @@ func loadOrInitConfig(path string) (panelConfig, bool, string, error) {
 		if cfg.AgentSecret == "" {
 			return cfg, false, "", fmt.Errorf("config %s has no agent_secret", path)
 		}
+		if cfg.PasswordHash == "" {
+			// Clearing only the hash is the documented password-reset path.
+			// Keep the registration key and machine credentials intact.
+			password, err := setRandomPassword(&cfg)
+			if err != nil {
+				return cfg, false, "", err
+			}
+			if err := writeConfigAtomic(path, cfg); err != nil {
+				return cfg, false, "", err
+			}
+			return cfg, true, password, nil
+		}
+		if _, err := bcrypt.Cost([]byte(cfg.PasswordHash)); err != nil {
+			return cfg, false, "", fmt.Errorf("config %s has an invalid password_hash: %w", path, err)
+		}
 		return cfg, false, "", nil
 
 	case errors.Is(err, os.ErrNotExist):
@@ -150,15 +171,11 @@ func loadOrInitConfig(path string) (panelConfig, bool, string, error) {
 		if err != nil {
 			return cfg, false, "", err
 		}
-		password, err := randomToken(9)
+		cfg = panelConfig{AgentSecret: secret}
+		password, err := setRandomPassword(&cfg)
 		if err != nil {
 			return cfg, false, "", err
 		}
-		hash, err := server.HashPassword(password)
-		if err != nil {
-			return cfg, false, "", err
-		}
-		cfg = panelConfig{AgentSecret: secret, PasswordHash: hash}
 		if err := writeConfigAtomic(path, cfg); err != nil {
 			return cfg, false, "", err
 		}
@@ -167,6 +184,19 @@ func loadOrInitConfig(path string) (panelConfig, bool, string, error) {
 	default:
 		return cfg, false, "", fmt.Errorf("reading %s: %w", path, err)
 	}
+}
+
+func setRandomPassword(cfg *panelConfig) (string, error) {
+	password, err := randomToken(9)
+	if err != nil {
+		return "", err
+	}
+	hash, err := server.HashPassword(password)
+	if err != nil {
+		return "", err
+	}
+	cfg.PasswordHash = hash
+	return password, nil
 }
 
 // writeConfigAtomic writes the config so a crash cannot leave a half-written
@@ -224,14 +254,14 @@ func printBanner(listen, secret, password string, firstRun, terminal bool) {
 	}
 	fmt.Println()
 	if firstRun {
-		fmt.Println("  ── 首次启动，以下信息只显示这一次 ──")
+		fmt.Println("  ── 管理员密码已生成，明文只显示这一次 ──")
 		fmt.Println()
 		fmt.Println("  管理员密码:", password)
 		fmt.Println()
 		fmt.Println("  Agent 密钥:", secret)
 		fmt.Println()
 		fmt.Println("  安装 agent:")
-		fmt.Printf("    dingzi-agent --server <面板地址> --secret %s\n", secret)
+		fmt.Printf("    dingzi-agent --config ./agent.yaml --server <面板地址> --secret %s\n", secret)
 		fmt.Println()
 		fmt.Println("  容器内需要网页终端时追加 --allow-terminal")
 		fmt.Println()

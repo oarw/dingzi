@@ -183,10 +183,14 @@ func (c *Client) doHTTP(ctx context.Context, t proto.Task) proto.TaskResult {
 	// Drain a bounded amount so the connection closes cleanly and the timing
 	// includes the response actually arriving, not just its headers. Capped
 	// because a monitor must not pull a large body on every check.
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	_, readErr := io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 
 	res.LatencyMS = round2(float64(time.Since(start)) / float64(time.Millisecond))
 	res.StatusCode = resp.StatusCode
+	if readErr != nil {
+		res.Error = shortErr(readErr)
+		return res
+	}
 	// 2xx and 3xx are up. A 4xx or 5xx means the server answered but the
 	// service is not healthy, which is a failure with a useful status code.
 	res.OK = resp.StatusCode >= 200 && resp.StatusCode < 400

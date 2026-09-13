@@ -7,6 +7,39 @@ import (
 	"testing"
 )
 
+func TestCredentialPersistsAndURLIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yaml")
+	cfg, err := LoadConfig(path, Config{Server: "http://localhost:8008", Secret: "registration-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.EnsureUUID(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.EnsureToken(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig(path, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loaded.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server != cfg.Server || loaded.Token != cfg.Token || loaded.UUID != cfg.UUID {
+		t.Fatal("restart changed identity or appended endpoint")
+	}
+	if err := loaded.EnsureToken(); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Token != cfg.Token {
+		t.Fatal("credential rotated on restart")
+	}
+}
+
 func TestWebSocketURL(t *testing.T) {
 	tests := []struct {
 		name, in, want string

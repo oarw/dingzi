@@ -16,9 +16,10 @@ for t in proto agent server; do
   cp "$bin" "/tmp/$t.test"
   chmod +x "/tmp/$t.test"
   echo "=== $t ==="
-  if (cd /tmp && "./$t.test" -test.timeout 5m 2>&1 | tail -8); then
-    :
+  if (cd /tmp && "./$t.test" -test.timeout 5m > "/tmp/dingzi-$t-test.log" 2>&1); then
+    tail -8 "/tmp/dingzi-$t-test.log"
   else
+    cat "/tmp/dingzi-$t-test.log"
     fail=1
   fi
 done

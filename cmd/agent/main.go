@@ -36,6 +36,7 @@ func run() error {
 		"skip TLS certificate verification (not recommended)")
 	debug := flag.Bool("debug", false, "verbose logging")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	configure := flag.Bool("configure", false, "save configuration without connecting")
 	flag.Parse()
 
 	if *showVersion {
@@ -61,8 +62,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "allow-terminal":
+			cfg.AllowTerminal = *allowTerminal
+		case "insecure-skip-verify":
+			cfg.InsecureSkipVerify = *insecure
+		}
+	})
 	if err := cfg.Validate(); err != nil {
 		return err
+	}
+	if *configure {
+		if _, err := cfg.EnsureUUID(); err != nil {
+			return err
+		}
+		if err := cfg.EnsureToken(); err != nil {
+			return err
+		}
+		return cfg.Save()
 	}
 
 	generated, err := cfg.EnsureUUID()

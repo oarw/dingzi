@@ -22,10 +22,11 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: '强制指定版本级别（留空则从 commit 推断）'
+        description: '版本级别（auto 从 commit 推断）'
         required: false
         type: choice
-        options: ['', patch, minor, major]
+        default: auto
+        options: [auto, patch, minor, major]
 
 permissions:
   contents: write
@@ -90,7 +91,7 @@ jobs:
           # docs:/chore:/ci:/test:/style: 不发版 —— 这是让"合并就发版"不至于
           # 每个错别字都产出一个版本的关键。
           BUMP=""
-          if [ -n "${FORCED_BUMP}" ]; then
+          if [ -n "${FORCED_BUMP}" ] && [ "${FORCED_BUMP}" != "auto" ]; then
             BUMP="${FORCED_BUMP}"
             echo "bump forced to $BUMP"
           elif [ -z "$RANGE" ]; then
@@ -160,7 +161,7 @@ jobs:
         target:
           - {goos: linux,   goarch: amd64}
           - {goos: linux,   goarch: arm64}
-          - {goos: linux,   goarch: arm}
+          - {goos: linux,   goarch: arm, goarm: '6'}
           - {goos: linux,   goarch: '386'}
           - {goos: linux,   goarch: riscv64}
           - {goos: darwin,  goarch: amd64}
@@ -178,6 +179,7 @@ jobs:
         env:
           GOOS: ${{ matrix.target.goos }}
           GOARCH: ${{ matrix.target.goarch }}
+          GOARM: ${{ matrix.target.goarm }}
           CGO_ENABLED: "0"
           VERSION: ${{ needs.version.outputs.version }}
         run: |
@@ -278,8 +280,8 @@ jobs:
             echo "## 安装"
             echo
             echo '```sh'
-            echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh -s -- \\"
-            echo "    --server https://你的面板地址 --secret <面板打印的密钥>"
+            echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${TAG}/install.sh | sh -s -- \\"
+            echo "    --version ${TAG} --server https://你的面板地址 --secret <面板打印的密钥>"
             echo '```'
             echo
             echo "容器里需要网页终端，加 \`--allow-terminal\`。"

@@ -91,6 +91,8 @@ func (c *Client) handleTerminalOpen(ctx context.Context, reqID string, open prot
 		return
 	}
 	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 	conn.SetReadLimit(terminalMaxFrame)
 
 	c.log.Info("terminal session started", slog.String("shell", sess.Shell()))
@@ -111,7 +113,8 @@ func (c *Client) dialTerminal(ctx context.Context, session string) (*websocket.C
 		d.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	h := http.Header{}
-	h.Set("Authorization", "Bearer "+c.cfg.Secret)
+	h.Set("Authorization", "Bearer "+c.cfg.Token)
+	h.Set(proto.AgentUUIDHeader, c.cfg.UUID)
 	h.Set(proto.TerminalSessionHeader, session)
 	h.Set("User-Agent", "dingzi-agent/"+c.version)
 

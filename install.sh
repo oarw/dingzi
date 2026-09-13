@@ -121,7 +121,7 @@ case "$RAW_ARCH" in
   aarch64|arm64)     GOARCH=arm64 ;;
   i386|i486|i586|i686) GOARCH=386 ;;
   riscv64)           GOARCH=riscv64 ;;
-  # armv6 / armv7 / armhf 都用同一个 arm 构建：GOARCH=arm 默认按 ARMv6 编译，
+  # armv6 / armv7 / armhf 都用同一个 arm 构建：发布流程显式设置 GOARM=6，
   # 在 ARMv7 上也能跑。反过来不行，所以只出一个。
   armv6*|armv7*|armhf|arm) GOARCH=arm ;;
   *)                 die "不支持的架构: $RAW_ARCH" ;;
@@ -185,7 +185,14 @@ say "服务管理  $INIT"
 printf '\n'
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT INT TERM
+STAGED_BIN=""
+cleanup() {
+  rm -rf "$TMP"
+  [ -z "$STAGED_BIN" ] || rm -f "$STAGED_BIN"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 say "下载 $ASSET ..."
 fetch "$BASE/$ASSET" "$TMP/$BIN_NAME" \
@@ -220,7 +227,10 @@ say "校验通过 ${GOT}"
 
 # ---- 安装 -------------------------------------------------------------------
 install -d -m 0755 "$BIN_DIR"
-install -m 0755 "$TMP/$BIN_NAME" "$BIN_DIR/$BIN_NAME"
+# Stage on the destination filesystem. This avoids both replacing a working
+# binary before validation and executing from a possibly noexec /tmp mount.
+STAGED_BIN="$(mktemp "$BIN_DIR/.dingzi-agent.XXXXXX")"
+install -m 0755 "$TMP/$BIN_NAME" "$STAGED_BIN"
 install -d -m 0700 "$CONF_DIR"
 
 CONF="$CONF_DIR/agent.yaml"
@@ -231,20 +241,6 @@ if [ -f "$CONF" ]; then
   # 断在这里。但把用户这次显式传进来的 server / secret 丢掉同样不对 —— 那是
   # 一个静默失败：命令看起来成功了，agent 却还在连旧面板。所以两者都要。
   say "保留已有 uuid，更新 server / secret"
-  OLD_UUID="$(sed -n 's/^uuid: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CONF" | head -1)"
-  umask 077
-  {
-    printf '# 由 install.sh 生成\n'
-    printf 'server: %s\n' "$SERVER"
-    printf 'secret: %s\n' "$SECRET"
-    printf 'uuid: "%s"\n' "$OLD_UUID"
-    [ "$ALLOW_TERMINAL" = "1" ] && printf 'allow_terminal: true\n'
-  } > "$CONF.new"
-  mv "$CONF.new" "$CONF"
-  chmod 0600 "$CONF"
-  if [ -n "$OLD_UUID" ]; then
-    say "  uuid 保持 $OLD_UUID"
-  fi
   # allow_terminal 只在这次带了 --allow-terminal 时才写。不带就是关掉 ——
   # 一个安全开关不该因为"上次开过"而继续开着，那样就没人知道它现在是什么状态。
   if [ "$ALLOW_TERMINAL" = "1" ]; then
@@ -253,19 +249,16 @@ if [ -f "$CONF" ]; then
     say "  网页终端: 关闭（要开请加 --allow-terminal）"
   fi
 else
-  umask 077
-  cat > "$CONF" <<EOF
-# 由 install.sh 生成
-server: $SERVER
-secret: $SECRET
-uuid: ""
-EOF
-  if [ "$ALLOW_TERMINAL" = "1" ]; then
-    printf 'allow_terminal: true\n' >> "$CONF"
-  fi
-  chmod 0600 "$CONF"
-  say "已写入配置 $CONF (0600)"
+  say "创建配置 $CONF"
 fi
+# Let the agent parse YAML and retain both UUID and per-machine credentials.
+"$STAGED_BIN" --configure --config "$CONF" --server "$SERVER" \
+  --secret "$SECRET" --allow-terminal="$([ "$ALLOW_TERMINAL" = "1" ] && printf true || printf false)" \
+  || die "配置保存失败，原有二进制未替换，服务尚未重启。请检查现有配置。
+  若提示未知 --configure，请使用对应版本标签中的 install.sh；v0.1.1 及更早的 Agent 不支持此参数。"
+chmod 0600 "$CONF"
+mv -f "$STAGED_BIN" "$BIN_DIR/$BIN_NAME"
+STAGED_BIN=""
 
 # ---- 服务 -------------------------------------------------------------------
 case "$INIT" in
