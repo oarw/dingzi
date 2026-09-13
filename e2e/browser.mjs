@@ -1,7 +1,7 @@
 // Run against disposable local binaries. No production credentials or external notifications.
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {mkdtemp,mkdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createServer} from 'node:http';
@@ -45,6 +45,7 @@ try{
   await page.getByRole('button',{name:'设置 本地验证节点',exact:true}).click();
   await page.getByLabel('名称',{exact:true}).fill('本地验证节点-已修改');
   await page.getByLabel('月度配额 (GiB，0 为不限)').fill('100');
+  await page.getByLabel('计费口径',{exact:true}).selectOption('out');
   await page.locator('#editor').getByRole('button',{name:'保存',exact:true}).click();await page.locator('#editor').waitFor({state:'hidden'});
   await page.getByRole('link',{name:'服务监控',exact:true}).click();
   await page.getByRole('button',{name:'新建监控',exact:true}).first().click();
@@ -59,6 +60,7 @@ try{
   await page.getByRole('button',{name:'新建渠道',exact:true}).first().click();
   await page.getByLabel('名称',{exact:true}).fill('本地测试通知');
   await page.getByLabel('Webhook 地址').fill(target+'/notifications');
+  await page.getByLabel('密钥 / Bot Token',{exact:true}).fill('local-browser-fixture');
   await page.locator('#editor').getByRole('button',{name:'保存',exact:true}).click();await page.locator('#editor').waitFor({state:'hidden'});
   await page.getByRole('button',{name:'发送测试通知 本地测试通知'}).click();await page.getByText('测试通知已送达',{exact:true}).waitFor();
   await page.getByRole('link',{name:'告警规则',exact:true}).click();
@@ -84,14 +86,30 @@ try{
     }
     await page.goto(base+'/#channels');await page.getByRole('button',{name:'编辑 本地测试通知'}).waitFor();await page.getByRole('button',{name:'编辑 本地测试通知'}).click();
     assert(await page.locator('#editor').evaluate(el=>el.getBoundingClientRect().right<=innerWidth),'editor overflow');
-    await page.screenshot({path:join(out,name+'-editor.png'),fullPage:true});await page.getByRole('button',{name:'关闭',exact:true}).click();
+    await page.screenshot({path:join(out,name+'-editor.png'),fullPage:true});
+    assert.equal(await page.getByLabel('密钥 / Bot Token（留空保留）',{exact:true}).inputValue(),'','channel editor exposed a token');
+    await page.getByLabel('类型',{exact:true}).selectOption('telegram');
+    assert(await page.getByLabel('密钥 / Bot Token',{exact:true}).evaluate(el=>el.required),'changing channel type allowed an absent Bot Token');
+    await page.getByRole('button',{name:'关闭',exact:true}).click();
   }
+  let quotaMode='out';
+  await page.route('**/api/v1/servers',route=>route.fulfill({json:{servers:[{...machine,traffic_in:3072,traffic_out:1024,quota_mode:quotaMode}],now:Math.floor(Date.now()/1000)}}));
+  for(const [mode,expected] of [['out','1.0K'],['max','3.0K'],['sum','4.0K']]){
+    quotaMode=mode;
+    await page.goto(base+'/?billing='+mode+'#machine/'+machine.id);
+    await page.getByText('本期计费流量',{exact:true}).waitFor();
+    assert.equal(await page.getByText('本期计费流量',{exact:true}).locator('..').locator('dd').innerText(),expected,'detail ignored '+mode+' billing mode');
+  }
+  await page.unroute('**/api/v1/servers');
   await page.goto(base+'/#fleet');await page.getByRole('button',{name:'退出登录',exact:true}).waitFor();await page.getByRole('button',{name:'退出登录',exact:true}).click();
   await page.getByRole('link',{name:'告警规则',exact:true}).click();await page.getByText('请登录后管理监控和通知').waitFor();
   await page.route('**/api/v1/servers',r=>r.abort());await page.goto(base+'/#fleet');await page.getByText(/面板连接中断/).waitFor();
+  assert.equal(await page.locator('.mc').count(),1,'disconnection discarded the last real sample');
+  await page.getByRole('link',{name:'本地验证节点-已修改',exact:true}).waitFor();
+  await page.goto(base+'/?offline=1#fleet');await page.getByText(/面板连接中断/).waitFor();
   assert.equal(await page.locator('.mc').count(),0,'disconnection substituted demo machines');
   assert.deepEqual(errors,[],'browser runtime errors');
-  console.log('PASS: real agent, login/logout, machine settings, monitor execution, notification, rule creation, desktop/mobile views, chart pixels, responsive forms, disconnect state');
+  console.log('PASS: real agent, login/logout, machine settings, monitor execution, notification, rule creation, desktop/mobile views, chart pixels, responsive forms, channel token handling, billing modes, disconnect state');
   console.log('Screenshots: '+out);
 }catch(err){
   console.error('Browser errors:',errors);
@@ -99,6 +117,11 @@ try{
   throw err;
 }finally{
   if(browser)await browser.close();
-  for(const child of children.reverse())child.kill();
+  await Promise.all(children.reverse().map(child=>{
+    if(child.exitCode!==null||child.signalCode!==null)return;
+    const stopped=new Promise(resolve=>child.once('close',resolve));
+    child.kill();return stopped;
+  }));
   await new Promise(r=>local.close(r));
+  await rm(dir,{recursive:true,force:true});
 }

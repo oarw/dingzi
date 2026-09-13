@@ -42,14 +42,15 @@ failed.
 
 Things a neighboring panel could not truthfully claim:
 
-- **WebSocket over HTTPS transport**, not gRPC — works behind Cloudflare and
-  nginx with zero special configuration, and shares one port with the web UI.
+- **WebSocket over HTTPS transport** — uses standard WebSocket forwarding
+  behind Cloudflare and nginx, and shares one port with the web UI.
 - **Single binary, single port, no CGO** — `GOOS=linux go build` cross-compiles
   with no C toolchain.
 - **Memory bounded by construction** — fixed-size ring buffers mean resident
   memory scales with machine count, never with uptime or traffic.
-- **No remote command execution**, deliberately. A compromised panel cannot
-  become fleet-wide RCE.
+- **No `exec` task type.** Interactive terminals require each Agent's explicit
+  `--allow-terminal` opt-in; the panel can also disable all terminals. An enabled
+  terminal executes commands as the Agent's operating-system user.
 
 ## Operating Context
 
@@ -75,16 +76,31 @@ Confirmed decisions:
   choice over a denser single-row table).
 - **Monthly traffic accumulation with configurable quota** per machine:
   `LimitBytes`, `ResetDay` (1–31, clamped at month end), `CountMode`
-  (`sum | out | max`, default `sum`).
+  (`sum | out | max`, default `sum`). Billing boundaries use UTC.
 - **Theme follows the OS**, with a three-state manual override (auto/light/dark)
   in `localStorage`.
 - **No `exec` task type.** Reachability checks only (ping / TCP / HTTP).
 - Secrets are **generated, never chosen** — first boot prints a random admin
   password and agent key.
 
-Undecided (must not be invented): metric retention and downsampling
-parameters; whether monitors are assigned to specific agents or run on all;
-the alert-rule expression format; online-terminal implementation.
+Implemented on `feat/complete-monitoring`:
+
+- Login/logout, machine settings and deletion, quota settings, and machine
+  history charts. Public fleet/history reads; authenticated management actions.
+- Raw metrics, monitor results and alert events retained for 30 days by default,
+  configurable with `--retention-days`. History is aggregated at query time;
+  there is no persistent background downsampling pipeline.
+- Each HTTP/TCP/ICMP monitor runs on one selected Agent. Unavailable probes
+  produce an unknown result, excluded from the availability denominator.
+- Alert rules use structured metric, threshold, duration and channel fields.
+  Webhook and Telegram channels support test messages and bounded retries.
+- Fleet polling every two seconds; manual refresh for monitoring and
+  notification management views; history queried on opening or range changes.
+- Agent-generated per-machine credentials, persisted before enrollment and
+  hashed on the panel. Deleting a machine revokes its identity.
+- Unix web terminals use a separate WebSocket connection, single-use session
+  tokens, concurrency limits, idle expiry and audit logs. Windows PTY is not
+  implemented and returns an explicit refusal.
 
 ## Brand Commitments
 
@@ -94,12 +110,14 @@ the alert-rule expression format; online-terminal implementation.
 
 ## Evidence on Hand
 
-**No real fleet data exists.** All machine names, metrics, and traffic figures
-in mockups are synthetic and must be labeled as such. Nothing may imply real
-uptime records, real customers, or benchmark results.
+No production fleet dataset or performance benchmark is recorded here. Browser
+verification uses disposable local Agent metrics and explicitly controlled
+billing fixtures. Mockup data remains synthetic; neither source supports claims
+about customer uptime, production scale, or long-term reliability.
 
 Real and citable: the architecture decisions and their rationale, recorded in
-`README.md` and `HANDOFF.md`.
+`README.md` and `HANDOFF.md`, and the local checks recorded in
+`docs/REVIEW_2026-09-13.md`.
 
 ## Product Principles
 

@@ -21,7 +21,7 @@
 | `docs` `chore` `ci` `test` `style` `build` | **不发版** | 文档、依赖、CI、测试、格式 |
 | 任意类型加 `!`,或正文里 `BREAKING CHANGE:` | major (0.1.0 → 1.0.0) | 配置格式变了、协议不兼容了 |
 
-最后一行的作用:改个错别字不会产出一个新版本。没有它,「合并就发版」会让 release
+跳过文档等提交的作用:改个错别字不会产出一个新版本。没有它,「合并就发版」会让 release
 页面被文档提交淹掉。
 
 例:
@@ -35,7 +35,7 @@ docs: 补充网页终端的风险说明
 
 ## 分支和 PR
 
-`main` 受保护,直接推不进去。所有改动走 PR:
+所有改动通过 PR 合并进 `main`:
 
 ```sh
 git switch -c fix/swap-divide-by-zero
@@ -51,11 +51,14 @@ PR 开着的时候每次 push 都会:
 2. 全绿之后发一个**滚动预发布** `vX.Y.Z-prNN`,可以直接装来试
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/oarw/dingzi/main/install.sh | sh -s -- \
+curl -fsSL https://raw.githubusercontent.com/oarw/dingzi/v0.2.0-pr42/install.sh | sh -s -- \
     --version v0.2.0-pr42 --server https://panel.example.com --secret <密钥>
 ```
 
 预发布是滚动的 —— 同一个 PR 再推一次会替换掉上一个,不会在 release 页面堆一串。
+上面的标签仅为示例，实际使用时替换为当前 PR 的发布标签。面板、Agent 和安装脚本应来自
+同一轮发布；测试开发分支时不要默认安装最新正式版。认证协议和恢复步骤见
+[升级与运维说明](docs/UPGRADING.md)。
 
 **从 fork 提的 PR 只有构建产物,没有预发布。** 那种 PR 拿到的 `GITHUB_TOKEN` 是
 只读的,这是安全属性:否则任何人 fork 一下就能往 release 页面推东西。产物在 Actions
@@ -68,12 +71,23 @@ PR 用 squash merge,**PR 标题会成为那条 commit 信息**,所以标题也�
 
 ## 本地验证
 
+先遵守所在环境的限制：维护者的 `Desktop/pro` 是允许安装依赖、测试和构建的远程环境；
+`code` 目录是工作电脑，只阅读、编辑和静态检查，编译测试交给 CI。
+
 ```sh
 go build ./...
-go test ./...
+go test -count=1 -timeout 10m ./...
+go test -race -count=1 -timeout 10m ./...
 go vet ./...
 gofmt -l .          # 有输出就是 CI 会红的地方
+node --check internal/server/web/app.js
+node --check e2e/browser.mjs
+sh -n install.sh
 ```
+
+race 检测需要 C 编译器；正式程序仍支持 `CGO_ENABLED=0`。`go test ./...` 包含安装脚本回归：
+本地下载桩、临时二进制和配置目录，不访问下载站或注册系统服务；没有 POSIX `sh` 时跳过该组测试。
+CI 与发布矩阵的 Linux ARM 包显式使用 `GOARM=6`，兼容 ARMv6/ARMv7。
 
 终端相关的集成测试带 `unix` build tag —— 它们会真的起一个 pty 和真的 shell,
 所以只在 Linux / macOS 上跑。CI 在 ubuntu 上跑它们。
@@ -85,6 +99,34 @@ Windows 上开发的话,可以拿 WSL 里的 Alpine 验证(顺便测了 busybox 
 GOOS=linux go test -c -o e2e/wsl/server.test ./internal/server
 wsl -d <distro> -- /bin/sh e2e/wsl/run-tests.sh
 ```
+
+### 管理界面浏览器验收
+
+`e2e/browser.mjs` 会启动临时面板和真实本机 Agent，检查登录、机器设置、监控执行、本地 Webhook、
+规则创建、历史图表、桌面/手机布局、渠道凭据、计费口径和断连状态。结束时停止自身进程并清理
+临时数据，截图保留在 `DINGZI_REVIEW`。它不会使用生产凭据或发送外部通知。
+
+需要 Node.js 22+、Playwright 及 Chrome/Chromium。下面是在允许构建的 Windows 环境中的命令：
+
+```powershell
+New-Item -ItemType Directory -Force e2e/run/tools | Out-Null
+go build -o e2e/run/dingzi-server.exe ./cmd/server
+go build -o e2e/run/dingzi-agent.exe ./cmd/agent
+npm install --prefix e2e/run/tools --no-save --package-lock=false playwright@1.56.1
+$env:DINGZI_BIN = (Resolve-Path e2e/run).Path
+$env:DINGZI_TOOLS = (Resolve-Path e2e/run/tools).Path
+$env:DINGZI_REVIEW = Join-Path $env:DINGZI_BIN 'review'
+node e2e/browser.mjs
+```
+
+Windows 默认使用 `C:/Program Files/Google/Chrome/Application/chrome.exe`，其他位置通过
+`DINGZI_CHROME` 指定。Unix 下去掉二进制的 `.exe` 后缀，用 `export` 设置同名环境变量；
+可设置 `DINGZI_CHROME` 使用系统浏览器，或通过
+`node e2e/run/tools/node_modules/playwright/cli.js install chromium` 安装测试浏览器。
+依赖和产物放在已忽略的 `e2e/run`，不提交截图、数据库、日志、凭据或 PID 文件。
+
+Go CI 当前不自动运行这组浏览器测试。每次验收应记录提交/工作区范围、环境、通过的命令和未验证项，
+不要用历史 CI 结果替代当前修改的证据。本轮记录见 [代码复审](docs/REVIEW_2026-09-13.md)。
 
 ## 一些设计立场
 

@@ -411,14 +411,16 @@ function sat(k,v,off){
     '<span class="num '+tone+'">'+v+'%</span>'+
     (c?'<span class="sub">'+(c==="warn"?"告警":"注意")+'</span>':'')+
     '</div>'+segs(v,c)+'</div>'}
+function billedTraffic(inBytes,outBytes,mode){
+  return mode==='out'?outBytes:mode==='max'?Math.max(inBytes,outBytes):inBytes+outBytes;
+}
 function quota(m){
   const io='<span class="fv"><i>↓</i>'+human(m.net_in_total)+
     ' <i>↑</i>'+human(m.net_out_total)+'</span>';
   if(!m.quota_bytes)return '<div class="fx w2"><span class="fk">流量</span>'+io+
     '<span class="fv k">未设配额</span></div>';
   const mode=m.quota_mode||"sum";
-  const used=mode==="out"?m.net_out_total:mode==="max"
-    ?Math.max(m.net_in_total,m.net_out_total):m.net_in_total+m.net_out_total;
+  const used=billedTraffic(m.net_in_total,m.net_out_total,mode);
   const p=Math.min(100,Math.round(used/m.quota_bytes*100)), c=qband(p);
   return '<div class="fx w2"><span class="fk">流量</span>'+io+
     '<span class="fv'+(c?" ":" k")+'">'+p+'% / '+human(m.quota_bytes)+

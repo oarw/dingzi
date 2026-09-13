@@ -121,7 +121,7 @@ case "$RAW_ARCH" in
   aarch64|arm64)     GOARCH=arm64 ;;
   i386|i486|i586|i686) GOARCH=386 ;;
   riscv64)           GOARCH=riscv64 ;;
-  # armv6 / armv7 / armhf 都用同一个 arm 构建：GOARCH=arm 默认按 ARMv6 编译，
+  # armv6 / armv7 / armhf 都用同一个 arm 构建：发布流程显式设置 GOARM=6，
   # 在 ARMv7 上也能跑。反过来不行，所以只出一个。
   armv6*|armv7*|armhf|arm) GOARCH=arm ;;
   *)                 die "不支持的架构: $RAW_ARCH" ;;
@@ -185,7 +185,14 @@ say "服务管理  $INIT"
 printf '\n'
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT INT TERM
+STAGED_BIN=""
+cleanup() {
+  rm -rf "$TMP"
+  [ -z "$STAGED_BIN" ] || rm -f "$STAGED_BIN"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 say "下载 $ASSET ..."
 fetch "$BASE/$ASSET" "$TMP/$BIN_NAME" \
@@ -220,7 +227,10 @@ say "校验通过 ${GOT}"
 
 # ---- 安装 -------------------------------------------------------------------
 install -d -m 0755 "$BIN_DIR"
-install -m 0755 "$TMP/$BIN_NAME" "$BIN_DIR/$BIN_NAME"
+# Stage on the destination filesystem. This avoids both replacing a working
+# binary before validation and executing from a possibly noexec /tmp mount.
+STAGED_BIN="$(mktemp "$BIN_DIR/.dingzi-agent.XXXXXX")"
+install -m 0755 "$TMP/$BIN_NAME" "$STAGED_BIN"
 install -d -m 0700 "$CONF_DIR"
 
 CONF="$CONF_DIR/agent.yaml"
@@ -242,10 +252,13 @@ else
   say "创建配置 $CONF"
 fi
 # Let the agent parse YAML and retain both UUID and per-machine credentials.
-"$BIN_DIR/$BIN_NAME" --configure --config "$CONF" --server "$SERVER" \
+"$STAGED_BIN" --configure --config "$CONF" --server "$SERVER" \
   --secret "$SECRET" --allow-terminal="$([ "$ALLOW_TERMINAL" = "1" ] && printf true || printf false)" \
-  || die "配置保存失败，服务尚未重启。请检查现有配置。"
+  || die "配置保存失败，原有二进制未替换，服务尚未重启。请检查现有配置。
+  若提示未知 --configure，请使用对应版本标签中的 install.sh；v0.1.1 及更早的 Agent 不支持此参数。"
 chmod 0600 "$CONF"
+mv -f "$STAGED_BIN" "$BIN_DIR/$BIN_NAME"
+STAGED_BIN=""
 
 # ---- 服务 -------------------------------------------------------------------
 case "$INIT" in

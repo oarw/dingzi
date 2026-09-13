@@ -10,15 +10,15 @@
 
 | 哪吒 v0 的问题 | Dingzi 的做法 |
 | --- | --- |
-| gRPC 过 Cloudflare / nginx 要特殊配置，经常连不上 | 传输层换成 **WebSocket over HTTPS**，和普通网站流量一样，CDN / 反代零特殊配置 |
+| gRPC 过 Cloudflare / nginx 要特殊配置，经常连不上 | 传输层换成 **WebSocket over HTTPS**，使用常规 WebSocket 反代配置 |
 | 面板要开两个端口（gRPC + Web），防火墙容易配错 | **单端口**，Agent 和 Web UI 共用一个 HTTP 服务 |
 | Agent 掉线后卡死不重连，要手动重启 | 指数退避 + 抖动的**自动重连**，双向心跳超时强制重建连接 |
 | `--tls` / `--insecure` 语义混乱，容易配反 | Agent 只认 `server` URL，`https://` 或 `wss://` 自动启用 TLS，无歧义 |
 | SQLite 依赖 CGO，交叉编译困难 | `modernc.org/sqlite` **纯 Go 实现**，`GOOS=linux go build` 直接出货 |
-| 服务器多了以后面板内存暴涨 | 内存里只保留**固定长度环形缓冲**，历史数据落库并自动降采样 |
-| 配置文件写坏导致起不来 | 配置**原子写入**（临时文件 + rename），坏了自动回退默认值 |
-| Agent 机器时钟不准导致图表错乱 | 时间戳**以服务端为准**，同时上报 Agent 时间用于时钟偏移告警 |
-| 单条 SQL 写入被锁，高并发下丢数据 | WAL 模式 + **批量写入**，写入串行化到单 writer goroutine |
+| 服务器多了以后面板内存暴涨 | 内存里只保留**固定长度环形缓冲**，历史落库、查询时聚合、按保留期清理 |
+| 配置文件被部分写入，密钥丢失 | 配置**原子写入**（临时文件 + rename）；损坏时明确报错，保留原文件 |
+| Agent 机器时钟不准导致图表错乱 | 时间戳**以服务端为准**，同时上报 Agent 时间用于偏移提示 |
+| 单条 SQL 写入被锁，高并发下丢数据 | WAL + **批量指标写入**；配置事务提前取得写锁，避免读取后升级写锁失败 |
 | 网页终端一开就是全机队可执行命令 | 终端**每台机器单独开关**，agent 不加 `--allow-terminal` 就拒绝，决定权在被开终端的机器上 |
 
 ## 架构
@@ -56,6 +56,10 @@ go build -o dingzi-server ./cmd/server
 
 ### Agent 端(一键安装)
 
+脚本默认安装**最新正式版**。从本开发分支编译面板时，请使用同一提交构建的 Agent，
+或指定配套的预发布版本；`v0.1.1` 及更早版本不能与本分支混用。升级前先读
+[升级与运维说明](docs/UPGRADING.md)。
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/oarw/dingzi/main/install.sh | sh -s -- \
     --server https://panel.example.com --secret <上一步的密钥>
@@ -71,23 +75,44 @@ riscv64)、注册服务(systemd 或 OpenRC)、**强制校验 SHA256**。没有
 用 POSIX `sh` 写的,不是 bash —— Alpine 和各种 slim 镜像没有 bash,而那些正是
 最需要一键安装的机器。
 
-卸载:`install.sh --uninstall`(保留配置,因为里面有机器 uuid,重装可续用)
+卸载:`install.sh --uninstall`（保留配置中的 UUID 和单机 token，重装可续用）。
+安装脚本会先暂存二进制并校验配置，成功后才替换现有程序；配置失败时保留原二进制。
 
 ### Agent 端(手动)
 
 ```bash
 go build -o dingzi-agent ./cmd/agent
-./dingzi-agent --server wss://panel.example.com --secret <上一步的密钥>
+./dingzi-agent --config ./agent.yaml --server wss://panel.example.com --secret <上一步的密钥>
 ```
 
-Agent 首次连接会自动生成 UUID 并注册到面板，无需在面板上手动添加机器。
+Agent 会在连接前生成并保存 UUID 和单机 token，再使用注册密钥接入面板，无需手动添加机器。
+保留 `agent.yaml`，避免重启或重装后丢失身份；不要在不同机器之间复制 UUID/token。
+
+## 管理与监控
+
+机器看板和历史查询可公开读取；登录后可管理机器、服务监控、告警规则和通知渠道。
+
+- **机器管理**：改名、删除、设置月度配额、UTC 归零日及 `sum` / `out` / `max` 计费口径。
+  修改归零日会清空当前周期累计量；删除机器会同时删除历史、关联监控和规则，并吊销该身份。
+- **历史图表**：点击机器名称，查看 CPU、内存、交换、磁盘、负载和网络速率，支持 1 小时至
+  30 天范围。数据在查询时聚合；升级前缺少容量或速率字段的历史点显示为空值。
+- **服务监控**：每条检查选择一台执行探针，支持 HTTP/HTTPS、TCP、ICMP Ping。检查间隔
+  10–86400 秒，超时 100–60000 毫秒且不超过检查间隔；最多 200 条监控、16 个并发检查。
+  探针离线、缺少 ICMP 权限或无法取得结果记为“未知”，不计入服务可用率的分母。
+- **告警通知**：支持 CPU、内存、交换、磁盘、负载、配额、机器离线和服务故障规则。
+  每 5 秒评估一次，达到阈值并持续指定时间后触发，恢复时另记一次事件；未知数据不会触发恢复。
+  Webhook 和 Telegram 支持测试通知，自动通知失败后以 30 秒、60 秒间隔重试，总计最多 3 次。
+
+看板每 2 秒刷新一次；监控、规则、渠道和事件页面可通过刷新按钮更新，历史图表在打开或切换范围时查询。
+原始指标、检查结果和告警事件默认保留 30 天，面板每小时清理一次；可用 `--retention-days` 调整。
+Web UI 继续使用内嵌 HTML/CSS/JavaScript，无前端构建步骤或运行时 CDN。
 
 ## 网页终端
 
 给没有 SSH 的容器留的一条进去干活的路。**默认关闭**，要用得在那台机器上显式打开：
 
 ```bash
-./dingzi-agent --server wss://panel.example.com --secret <密钥> --allow-terminal
+./dingzi-agent --config ./agent.yaml --server wss://panel.example.com --secret <密钥> --allow-terminal
 ```
 
 开了之后面板上那台机器的卡片右上角会出现 `›_` 按钮。找不到 shell 的镜像（distroless、
@@ -123,13 +148,17 @@ Alpine 这类只有 busybox 的镜像可以正常用（已在 busybox v1.37 上�
 
 ## 配置
 
-两端都支持「命令行参数 > 环境变量 > 配置文件」的优先级。参考
+Agent 配置优先级为「命令行参数 > 环境变量 > 配置文件」，面板则从数据目录读取密钥配置，
+监听地址、保留期等由命令行控制。参考
 [`config.example.yaml`](config.example.yaml) 和 [`agent.example.yaml`](agent.example.yaml)。
+
+注册后，面板只保存单机 token 的 SHA-256 哈希；已绑定身份不再依赖注册密钥。
+密码重置、身份恢复、版本配套和反向代理配置见 [升级与运维说明](docs/UPGRADING.md)。
 
 ## 开发
 
-> 🚧 开发中。**已跑通**：协议层、agent 采集、面板服务端（hub / SQLite / REST API / 认证）、
-> Web UI、网页终端。**还没做**：服务监控调度、告警通知、前端历史图表。
+> 🚧 开发中。已实现探针采集、实时看板、机器管理、历史图表、服务监控调度、告警通知和网页终端。
+> 本轮审查针对 `feat/complete-monitoring`，详情及验证记录见 [代码复审](docs/REVIEW_2026-09-13.md)。
 >
 > 接手前请先读 [`HANDOFF.md`](HANDOFF.md)，里面有当前进度、每个技术决策的原因，
 > 以及踩过的坑（省得再调研一遍）。
@@ -139,9 +168,14 @@ Alpine 这类只有 busybox 的镜像可以正常用（已在 busybox v1.37 上�
 ```bash
 go build ./...        # 编译
 go test ./...         # 测试
+go test -race ./...   # 并发检查（需 C 编译器，仅检测器需要）
 go vet ./...          # 静态检查
 gofmt -l .            # 格式检查，提交前跑一下
 ```
+
+`go test ./...` 也包含安装脚本回归测试：用本地下载桩和临时目录验证升级失败保护，
+不访问外部下载地址、不安装系统服务。没有 POSIX `sh` 时该组测试会跳过。
+管理界面的真实 Agent/浏览器验证方法见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 终端相关的集成测试带 `unix` build tag，会真的起一个 pty 和真的 shell，所以只在
 Linux / macOS 上运行。在 Windows 上开发时，可以用 WSL 里的 Alpine 验证：

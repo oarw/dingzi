@@ -104,8 +104,10 @@ func (t *Traffic) rollCycle(now time.Time) {
 	// start a report short.
 }
 
-// CycleStart returns the most recent cycle boundary at or before now.
+// CycleStart returns the most recent UTC cycle boundary at or before now.
+// Billing must not shift when the panel moves to a host in another timezone.
 func CycleStart(now time.Time, resetDay int) time.Time {
+	now = now.UTC()
 	day := clampDay(resetDay, now.Year(), now.Month())
 	start := time.Date(now.Year(), now.Month(), day, 0, 0, 0, 0, now.Location())
 	if start.After(now) {

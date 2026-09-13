@@ -52,7 +52,11 @@ func OpenStore(path string, log *slog.Logger) (*Store, error) {
 	dsn := path + "?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=foreign_keys(ON)"
+		"&_pragma=foreign_keys(ON)" +
+		"&_txlock=immediate"
+	// Every explicit transaction here writes. Reserve the writer before its
+	// first SELECT, otherwise a sample flush can invalidate a configuration
+	// transaction's WAL snapshot. busy_timeout cannot retry that upgrade.
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

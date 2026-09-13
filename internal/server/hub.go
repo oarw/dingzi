@@ -98,10 +98,13 @@ type Hub struct {
 	mu     sync.RWMutex
 	byID   map[int64]*Machine
 	byUUID map[string]*Machine
+	// Set before the hub is published; allow three configured report intervals
+	// while retaining the usual 30-second floor for fast-reporting agents.
+	sampleTimeout time.Duration
 }
 
 func NewHub() *Hub {
-	return &Hub{byID: map[int64]*Machine{}, byUUID: map[string]*Machine{}}
+	return &Hub{byID: map[int64]*Machine{}, byUUID: map[string]*Machine{}, sampleTimeout: staleAfter}
 }
 
 // Load seeds the hub from storage so a panel restart does not appear to lose
@@ -267,8 +270,8 @@ type MachineView struct {
 	HasNow bool
 }
 
-// staleAfter is how long without a sample before a connected machine is
-// reported offline. A connection that is up while samples have stopped is not a
+// staleAfter is the minimum reporting deadline; slower configured intervals
+// allow three intervals. A connection that is up while samples have stopped is not a
 // working machine, and reporting it online is the specific lie that makes an
 // operator trust a green dot that means nothing.
 const staleAfter = 30 * time.Second
@@ -286,7 +289,9 @@ func (h *Hub) Snapshot(now time.Time) []MachineView {
 		// array is never written after publication.
 		v.Machine.samples = ring{}
 		v.Latest, v.HasNow = m.samples.latest()
-		if v.Online && v.HasNow && now.Sub(v.Latest.At) > staleAfter {
+		// A reconnect updates LastSeen, but cannot make an old sample fresh.
+		if v.Online && (now.Sub(m.LastSeen) > h.sampleTimeout ||
+			(v.HasNow && now.Sub(v.Latest.At) > h.sampleTimeout)) {
 			v.Online = false
 		}
 		out = append(out, v)
@@ -306,7 +311,8 @@ func (h *Hub) View(id int64, now time.Time) (MachineView, bool) {
 	v := MachineView{Machine: *m, Online: m.conn != nil}
 	v.Machine.samples = ring{}
 	v.Latest, v.HasNow = m.samples.latest()
-	if v.Online && v.HasNow && now.Sub(v.Latest.At) > staleAfter {
+	if v.Online && (now.Sub(m.LastSeen) > h.sampleTimeout ||
+		(v.HasNow && now.Sub(v.Latest.At) > h.sampleTimeout)) {
 		v.Online = false
 	}
 	return v, true

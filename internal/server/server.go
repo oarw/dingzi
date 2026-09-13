@@ -63,6 +63,7 @@ func New(opts Options, store *Store, log *slog.Logger) (*Server, error) {
 		sessions:  newSessionStore(),
 		terminals: newTerminalRegistry(),
 	}
+	s.hub.sampleTimeout = max(staleAfter, time.Duration(3*opts.Interval*float64(time.Second)))
 
 	// Load the fleet up front so a restart does not appear to lose every
 	// machine until each agent happens to reconnect.

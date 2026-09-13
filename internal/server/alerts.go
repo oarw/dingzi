@@ -426,7 +426,9 @@ func (e *serviceEngine) evaluate(ctx context.Context, now time.Time) error {
 			active = false
 			state = "recovered"
 		}
-		if since==a.Since && active==a.Active && (active || since==0) { continue }
+		if since == a.Since && active == a.Active && (active || since == 0) {
+			continue
+		}
 		tx, err := e.s.store.db.BeginTx(qctx, nil)
 		if err != nil {
 			return err

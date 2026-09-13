@@ -3,7 +3,7 @@ const workspace=document.getElementById('workspace');
 const editor=document.getElementById('editor');
 let routeVersion=0,MONITORS=[],RULES=[],CHANNELS=[],feedbackTimer,chartCleanup=()=>{};
 const metricNames={cpu:'CPU',mem:'内存',swap:'交换',disk:'磁盘',load1:'负载',quota:'流量配额',offline:'机器离线',monitor:'服务故障'};
-const statusNames={up:'正常',down:'故障',unknown:'未知',paused:'已停用',firing:'告警',recovered:'恢复',test:'测试',delivered:'已送达',failed:'发送失败',pending:'待发送',skipped:'已跳过'};
+const statusNames={up:'正常',down:'故障',unknown:'未知',paused:'已停用',firing:'告警',recovered:'恢复',test:'测试',delivered:'已送达',failed:'发送失败',pending:'待发送',waiting:'等待触发',skipped:'已跳过'};
 function icon(name){return '<span class="icon" aria-hidden="true" style="--icon:url(vendor/icons/'+name+'.svg)"></span>'}
 function tool(name,label,action,id=''){return '<button type="button" class="icon-button" title="'+esc(label)+'" aria-label="'+esc(label)+'" data-action="'+action+'" data-id="'+id+'">'+icon(name)+'</button>'}
 function command(label,action,id='',name='plus'){return '<button type="button" class="button" data-action="'+action+'" data-id="'+id+'">'+icon(name)+esc(label)+'</button>'}
@@ -70,7 +70,7 @@ async function navigate(){
     if(view==='monitor'){await monitorDetail(Number(id),version);return}
     if(view==='monitors'){
       const d=await api('monitors');if(version!==routeVersion)return;MONITORS=d.monitors;
-      workspace.innerHTML=heading('服务监控',command('新建监控','monitor-new'))+
+      workspace.innerHTML=heading('服务监控',tool('refresh-cw','刷新监控','refresh')+command('新建监控','monitor-new'))+
         (MONITORS.length?table(['名称 / 目标','执行探针','状态','延迟 / 丢包','24 小时可用率','最近检查','操作'],MONITORS.map(m=>[
           '<a href="#monitor/'+m.id+'">'+esc(m.name)+'</a><small>'+esc(m.type.toUpperCase()+' '+m.target)+'</small>',
           esc(FLEET.find(x=>x.id===m.server_id)?.name||'机器已删除'),status(!m.enabled?'paused':m.last?.status||'unknown')+(m.last?.error?'<small>'+esc(m.last.error)+'</small>':''),
@@ -79,17 +79,17 @@ async function navigate(){
         ])):empty('暂无服务监控',command('新建监控','monitor-new')));
     }else if(view==='channels'){
       const d=await api('channels');if(version!==routeVersion)return;CHANNELS=d.channels;
-      workspace.innerHTML=heading('通知渠道',command('新建渠道','channel-new'))+(CHANNELS.length?table(['名称','类型','地址 / 会话','状态','操作'],CHANNELS.map(c=>[
+      workspace.innerHTML=heading('通知渠道',tool('refresh-cw','刷新渠道','refresh')+command('新建渠道','channel-new'))+(CHANNELS.length?table(['名称','类型','地址 / 会话','状态','操作'],CHANNELS.map(c=>[
         esc(c.name),c.type==='telegram'?'Telegram':'Webhook',esc(c.type==='telegram'?c.chat_id:c.url),status(c.enabled?'up':'paused'),
         '<div class="actions">'+tool('play','发送测试通知 '+c.name,'channel-test',c.id)+tool('settings','编辑 '+c.name,'channel-edit',c.id)+tool('trash-2','删除 '+c.name,'channel-delete',c.id)+'</div>'
       ])):empty('暂无通知渠道',command('新建渠道','channel-new')));
     }else if(view==='alerts'){
       const [d,c,m]=await Promise.all([api('alert-rules'),api('channels'),api('monitors')]);if(version!==routeVersion)return;
       RULES=d.rules;CHANNELS=c.channels;MONITORS=m.monitors;
-      workspace.innerHTML=heading('告警规则',command('新建规则','rule-new'))+(RULES.length?table(['名称','对象','条件','持续时间','通知渠道','状态','操作'],RULES.map(a=>[
+      workspace.innerHTML=heading('告警规则',tool('refresh-cw','刷新规则','refresh')+command('新建规则','rule-new'))+(RULES.length?table(['名称','对象','条件','持续时间','通知渠道','状态','操作'],RULES.map(a=>[
         esc(a.name),esc(a.metric==='monitor'?MONITORS.find(m=>m.id===a.monitor_id)?.name||'--':FLEET.find(m=>m.id===a.server_id)?.name||'--'),
         esc(metricNames[a.metric])+(a.metric==='offline'||a.metric==='monitor'?'':' >= '+a.threshold+(a.metric==='load1'?'':'%')),
-        a.duration_seconds+' 秒',esc(CHANNELS.find(c=>c.id===a.channel_id)?.name||'--'),status(!a.enabled?'paused':a.active?'firing':a.since?'pending':'up'),
+        a.duration_seconds+' 秒',esc(CHANNELS.find(c=>c.id===a.channel_id)?.name||'--'),status(!a.enabled?'paused':a.active?'firing':a.since?'waiting':'up'),
         '<div class="actions">'+tool('settings','编辑 '+a.name,'rule-edit',a.id)+tool('trash-2','删除 '+a.name,'rule-delete',a.id)+'</div>'
       ])):empty('暂无告警规则',command('新建规则','rule-new')));
     }else if(view==='events'){
@@ -108,7 +108,7 @@ async function machineDetail(id,version){
   if(!machine){workspace.innerHTML=heading('机器不存在','',true);return}
   workspace.innerHTML=heading(machine.name,(AUTHED?tool('settings','机器设置','machine-edit',id):command('登录','login','','log-in')),true)+
     '<dl class="detail-facts">'+[['系统',machine.platform+' / '+machine.arch],['处理器',machine.cpu_model||'--'],['内存',human(machine.mem_used)+' / '+human(machine.mem_total)],['磁盘',human(machine.disk_used)+' / '+human(machine.disk_total)],
-    ['状态',machine.online?'在线':'离线'],['最近在线',stamp(machine.last_seen)],['本期流量',human(machine.traffic_in+machine.traffic_out)],['下次归零日',machine.reset_day+' 日 (UTC)']].map(([k,v])=>'<div><dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd></div>').join('')+'</dl>'+
+    ['状态',machine.online?'在线':'离线'],['最近在线',stamp(machine.last_seen)],['本期计费流量',human(billedTraffic(machine.traffic_in,machine.traffic_out,machine.quota_mode))],['下次归零日',machine.reset_day+' 日 (UTC)']].map(([k,v])=>'<div><dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd></div>').join('')+'</dl>'+
     '<div class="chart-toolbar"><label>指标 <select id="chart-metric"><option value="resources">CPU / 内存 / 交换 / 磁盘</option><option value="network">网络速率</option><option value="load">系统负载</option></select></label><div class="segmented" aria-label="历史时间范围">'+[[1,'1 小时'],[6,'6 小时'],[24,'24 小时'],[168,'7 天'],[720,'30 天']].map(([n,label])=>'<button type="button" data-hours="'+n+'" aria-pressed="'+(n===1)+'">'+label+'</button>').join('')+'</div></div>'+
     '<div class="chart-key" id="chart-key"></div><div class="chart-area"><canvas id="history-chart" role="img" aria-label="机器历史指标" tabindex="0"></canvas></div><p id="chart-readout" class="chart-readout" aria-live="polite"></p><p id="chart-state" class="subtitle" role="status"></p>';
   let hours=1,points=[],request=0;
@@ -190,7 +190,7 @@ function editChannel(id){
     field('url','Webhook 地址',c.url,{full:true})+field('token',c.token_set?'密钥 / Bot Token（留空保留）':'密钥 / Bot Token','',{type:'password',required:false,full:true})+
     field('chat_id','Chat ID',c.chat_id,{full:true,required:false})+field('clear_token','清除 Webhook 密钥',false,{type:'checkbox'})+field('enabled','启用渠道',c.enabled,{type:'checkbox'}),async f=>{
       await api('channels'+(id?'/'+id:''),id?'PUT':'POST',{name:f.get('name'),type:f.get('type'),url:f.get('url'),token:f.get('token'),chat_id:f.get('chat_id'),clear_token:f.has('clear_token'),enabled:f.has('enabled')});await refreshAfter('渠道已保存');
-    },'保存',form=>{const update=()=>{const tg=form.elements.type.value==='telegram';for(const name of ['url','chat_id','clear_token'])form.elements[name].closest('.field').hidden=name==='url'||name==='clear_token'?tg:!tg;form.elements.url.required=!tg;form.elements.chat_id.required=tg;form.elements.token.required=tg&&!c.token_set};form.elements.type.onchange=update;update()});
+    },'保存',form=>{const update=()=>{const tg=form.elements.type.value==='telegram',retained=c.token_set&&form.elements.type.value===c.type;for(const name of ['url','chat_id','clear_token'])form.elements[name].closest('.field').hidden=name==='url'||name==='clear_token'?tg:!tg;form.elements.url.required=!tg;form.elements.chat_id.required=tg;form.elements.token.required=tg&&!retained;form.elements.token.closest('.field').querySelector('label').textContent=retained?'密钥 / Bot Token（留空保留）':'密钥 / Bot Token'};form.elements.type.onchange=update;update()});
 }
 async function editRule(id){
   const [channels,monitors,rules]=await Promise.all([api('channels'),api('monitors'),api('alert-rules')]);CHANNELS=channels.channels;MONITORS=monitors.monitors;RULES=rules.rules;
