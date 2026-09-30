@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>管理后台 · Dingzi 钉子</title>
+<link rel="stylesheet" href="/base.css">
+<!-- xterm.js, vendored rather than loaded from a CDN: the panel is one binary
+     with no outbound dependencies, and a monitoring tool that needs the
+     internet to render is a monitoring tool that fails when you need it.
+     MIT licensed, see vendor/LICENSE-xterm. -->
+<link rel="stylesheet" href="/vendor/xterm.css">
+</head>
+<body class="admin-page">
+
+
+<link rel="stylesheet" href="/app.css">
+<div class="board">
+  <header class="masthead">
+    <a class="wordmark" href="/admin/">DINGZI<small>管理后台</small></a>
+    <button type="button" id="nav-toggle" class="button nav-toggle" aria-controls="admin-navigation" aria-expanded="false">菜单</button>
+    <div class="tally">
+      <button type="button" class="t-on tally-filter" data-fleet-filter="online" aria-pressed="false"><b id="n-on">—</b><i>在线</i></button>
+      <button type="button" class="t-warn tally-filter" data-fleet-filter="warn" aria-pressed="false"><b id="n-warn">—</b><i>指标异常</i></button>
+      <button type="button" class="t-quota tally-filter" data-fleet-filter="quota" aria-pressed="false"><b id="n-quota">—</b><i>配额提醒</i></button>
+      <button type="button" class="t-off tally-filter" data-fleet-filter="offline" aria-pressed="false"><b id="n-off">—</b><i>离线</i></button>
+      <span class="clock"><span id="data-indicator" class="beat" data-state="loading" aria-hidden="true"></span><span id="data-state" role="status">连接中</span><span id="clk">--:--:--</span></span>
+      <div class="themer" role="group" aria-label="主题">
+        <button type="button" data-t="auto" aria-pressed="true">自动</button>
+        <button type="button" data-t="light" aria-pressed="false">亮</button>
+        <button type="button" data-t="dark" aria-pressed="false">暗</button>
+      </div>
+    </div>
+  </header>
+  <div class="admin-layout">
+  <aside class="admin-sidebar" id="admin-navigation">
+    <nav class="navigation" aria-label="后台导航">
+      <a href="#fleet" data-view="fleet" aria-current="page">机器管理</a>
+      <a href="#monitors" data-view="monitors">服务监控</a>
+      <a href="#alerts" data-view="alerts">告警规则</a>
+      <a href="#channels" data-view="channels">通知渠道</a>
+      <a href="#events" data-view="events">事件记录</a>
+      <a href="#settings" data-view="settings">面板设置</a>
+    </nav>
+    <div class="sidebar-footer"><a href="/">查看公开页面</a><button type="button" class="auth-button" id="auth-button">退出登录</button></div>
+  </aside>
+  <div class="admin-content">
+  <p id="connection-status" class="connection-status" role="status">正在连接面板</p>
+  <main>
+    <section id="fleet-view">
+      <div class="section-head"><h1>机器管理</h1><button type="button" class="button" id="clear-fleet-filter" hidden>显示全部机器</button></div>
+      <p id="fleet-filter-status" class="subtitle" role="status" hidden></p>
+      <div class="grid" id="grid"></div>
+      <p class="empty" id="fleet-filter-empty" hidden>没有符合当前筛选的机器，可切换顶部状态或显示全部。</p>
+      <div class="empty fleet-onboarding" id="fleet-empty" hidden>
+        <h2>还没有接入的机器</h2>
+        <p>在要监控的机器上安装探针，连接成功后会自动出现在这里。</p>
+        <a class="button primary" href="https://github.com/oarw/dingzi#agent-端一键安装" target="_blank" rel="noopener noreferrer">查看探针接入步骤</a>
+        <p class="form-note">安装时需要面板地址和注册密钥；注册密钥可在面板服务日志中找到。</p>
+        <details><summary>已安装但未出现？</summary><ol><li>核对探针配置中的面板地址与注册密钥。</li><li>查看探针服务日志，确认是否连接失败或凭据被拒绝。</li><li>检查面板端口、防火墙和反向代理是否允许 WebSocket 连接。</li></ol></details>
+      </div>
+    </section>
+    <section id="workspace" hidden></section>
+  </main>
+  <footer class="legend"><span id="src"></span><span id="term-note"></span></footer>
+</div></div></div>
+<dialog class="term-wrap" id="term-wrap"
+     aria-labelledby="term-title">
+  <div class="term-box">
+    <div class="term-head">
+      <span class="term-title" id="term-title">终端</span>
+      <span class="term-shell" id="term-shell"></span>
+      <span class="term-warn">以 agent 的用户身份运行</span>
+      <button class="term-x icon-button" id="term-x" aria-label="关闭终端" title="关闭终端"><span class="icon" style="--icon:url(/vendor/icons/x.svg)"></span></button>
+    </div>
+    <div class="term-body" id="term-body"></div>
+  </div>
+</dialog>
+<dialog id="editor" class="editor" aria-labelledby="editor-title"></dialog>
+<div id="feedback" role="status" class="feedback" hidden></div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/theme.js"></script>
+<script src="/admin/board.js"></script>
+<script src="/admin/app.js"></script>
+</body>
+</html>

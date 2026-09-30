@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # release.yml calls this as its gate rather than copying the test matrix.
+  # Two copies would drift, and the day they drift is the day you were counting
+  # on this to stop something.
+  workflow_call:
+
+# Pin a supported security-patched toolchain; go.mod keeps the language minimum.
+env:
+  GO_VERSION: "1.27.1"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Exercise platform-specific collectors and Unix terminal integration.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dashboard state regressions
+        run: node --test e2e/board_test.mjs
+
+      # The terminal tests start real shells, so they need more than the default
+      # 10 minutes of headroom on a loaded runner.
+      - name: Test
+        run: go test -timeout 10m ./...
+
+      - name: Test with race detector
+        run: go test -race -timeout 10m ./...
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Installer shell syntax
+        run: |
+          sh -n install.sh
+          sh -n install-server.sh
+          sh -n e2e/service_install.sh
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build panel fixture
+        run: |
+          CGO_ENABLED=0 go build -o /tmp/dingzi-panel-test ./cmd/server
+          CGO_ENABLED=0 go build -o /tmp/dingzi-agent-test ./cmd/agent
+      - name: Ubuntu systemd install and upgrade
+        run: sudo env DINGZI_SERVICE_TEST=1 sh e2e/service_install.sh /tmp/dingzi-panel-test systemd /tmp/dingzi-agent-test
+      - name: Alpine OpenRC install and upgrade
+        run: |
+          docker run --rm -v "$PWD:/source:ro" -v /tmp/dingzi-panel-test:/panel:ro -v /tmp/dingzi-agent-test:/agent:ro alpine:3.22 sh -eu -c '
+            apk add --no-cache openrc curl procps
+            mkdir -p /run/openrc
+            touch /run/openrc/softlevel
+            # Docker has already configured the network. Expose that fact to
+            # the real OpenRC dependency resolver without reconfiguring it.
+            printf "%s\n" "#!/sbin/openrc-run" "depend() { provide net; }" "start() { return 0; }" > /etc/init.d/container-net
+            chmod +x /etc/init.d/container-net
+            rc-update add container-net default
+            rc-service container-net start
+            DINGZI_SERVICE_TEST=1 sh /source/e2e/service_install.sh /panel openrc /agent
+          '
+
+  cross:
+    # Every release target compiled on every push, with CGO off. The "no C
+    # toolchain needed" claim is the reason for the pure-Go SQLite driver, and a
+    # claim nothing checks is a claim that quietly stops being true.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
+          - {goos: linux, goarch: arm, goarm: '6'}
+          - {goos: linux, goarch: '386'}
+          - {goos: linux, goarch: riscv64}
+          - {goos: darwin, goarch: amd64}
+          - {goos: darwin, goarch: arm64}
+          - {goos: windows, goarch: amd64}
+          - {goos: freebsd, goarch: amd64}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build ${{ matrix.target.goos }}/${{ matrix.target.goarch }}
+        env:
+          GOOS: ${{ matrix.target.goos }}
+          GOARCH: ${{ matrix.target.goarch }}
+          GOARM: ${{ matrix.target.goarm }}
+          CGO_ENABLED: "0"
+        run: |
+          go build ./cmd/server
+          go build ./cmd/agent

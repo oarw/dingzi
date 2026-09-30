@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>管理员登录 · Dingzi 钉子</title>
+<link rel="stylesheet" href="/base.css"><link rel="stylesheet" href="/app.css">
+</head>
+<body class="login-page">
+<main class="login-card">
+  <a class="wordmark" href="/">DINGZI<small>钉子监控</small></a>
+  <h1>登录管理后台</h1><p class="subtitle">管理机器、监控、通知和面板设置。</p>
+  {{if .GitHub}}<a class="button" href="/auth/github">使用 GitHub 登录</a>{{end}}
+  <p id="github-error" class="form-error" role="alert" hidden></p>
+  <form id="login-form">
+    <div class="field"><label for="password">管理员密码</label><input id="password" name="password" type="password" required autocomplete="current-password" autofocus></div>
+    <p id="login-error" class="form-error" role="alert" hidden></p>
+    <button class="button primary" type="submit">登录</button>
+  </form>
+  <a class="text-link" href="/">返回公开概览</a>
+</main>
+<script src="/theme.js"></script><script src="/login.js"></script>
+</body>
+</html>
