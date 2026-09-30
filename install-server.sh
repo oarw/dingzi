@@ -91,7 +91,7 @@ if [ "$UNINSTALL" = 1 ]; then
       fi ;;
   esac
   rm -f "$BIN_DIR/$BIN_NAME"
-  say "已卸载。保留数据 $DATA_DIR、配置 $CONF_DIR/server.conf、日志及服务用户。"
+  say "已卸载。保留数据 ${DATA_DIR}、配置 $CONF_DIR/server.conf、日志及服务用户。"
   exit 0
 fi
 
@@ -107,7 +107,7 @@ if [ -f "$CONF" ]; then
       LISTEN) LISTEN="$value" ;;
       SECURE_COOKIE) SECURE_COOKIE="$value" ;;
       RETENTION_DAYS) RETENTION_DAYS="$value" ;;
-      *) die "$CONF 包含未知设置 $key；请检查文件，未修改安装。" ;;
+      *) die "$CONF 包含未知设置 ${key}；请检查文件，未修改安装。" ;;
     esac
   done < "$CONF"
 fi
@@ -155,7 +155,7 @@ fi
 case "$VERSION" in ''|*[!a-zA-Z0-9._-]*) die "无效的发布标签。" ;; esac
 ASSET="$BIN_NAME-linux-$ARCH"
 BASE="https://github.com/$REPO/releases/download/$VERSION"
-say "安装 $BIN_NAME $VERSION（linux/$ARCH，$INIT）"
+say "安装 $BIN_NAME ${VERSION}（linux/${ARCH}，${INIT}）"
 fetch "$BASE/$ASSET" "$TMP/$BIN_NAME" || die "下载面板失败，原安装未修改。"
 fetch "$BASE/checksums.txt" "$TMP/checksums.txt" || die "下载校验和失败，原安装未修改。"
 WANT="$(awk -v asset="$ASSET" '$2 == asset { print $1 }' "$TMP/checksums.txt")"
@@ -229,7 +229,7 @@ WantedBy=multi-user.target
 EOF
     install -m 0644 "$TMP/service" "$SYSTEMD_DIR/$BIN_NAME.service"
     systemctl daemon-reload
-    systemctl enable "$BIN_NAME" || die "设置开机启动失败，请检查 systemctl status $BIN_NAME。"
+    systemctl enable "$BIN_NAME" || die "设置开机启动失败，请检查 systemctl status ${BIN_NAME}。"
     systemctl restart "$BIN_NAME" || die "启动失败，请检查 journalctl -u $BIN_NAME -n 50。"
     sleep 2
     systemctl is-active --quiet "$BIN_NAME" || die "服务未保持运行，请检查 journalctl -u $BIN_NAME -n 50。"
@@ -267,8 +267,8 @@ EOF
 esac
 
 printf '\n'
-say "安装完成。监听 $LISTEN，数据 $DATA_DIR"
-say "浏览器打开 http://<服务器 IP>:$PORT（HTTPS 反代部署请使用你的域名）。"
+say "安装完成。监听 ${LISTEN}，数据 $DATA_DIR"
+say "浏览器打开 http://<服务器 IP>:${PORT}（HTTPS 反代部署请使用你的域名）。"
 say "首次管理员密码与 Agent 密钥请从服务日志中的启动横幅读取："
 case "$INIT" in
   systemd) say "sudo journalctl -u $BIN_NAME --no-pager -n 50" ;;

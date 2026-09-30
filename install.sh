@@ -60,7 +60,7 @@ done
 say()  { printf '  %s\n' "$*"; }
 die()  { printf '\n错误: %s\n' "$*" >&2; exit 1; }
 
-[ "$(id -u)" = "0" ] || die "需要 root 权限（要写 $BIN_DIR 和 $CONF_DIR，并注册服务）
+[ "$(id -u)" = "0" ] || die "需要 root 权限（要写 $BIN_DIR 和 ${CONF_DIR}，并注册服务）
   请用 sudo 重新运行。"
 
 # ---- 服务管理器 -------------------------------------------------------------
@@ -95,7 +95,7 @@ if [ "$UNINSTALL" = "1" ]; then
   rm -f "$BIN_DIR/$BIN_NAME"
   # 配置故意留下：里面存着这台机器的 uuid。删掉它，重装后面板会把这台机器
   # 当成一台新机器，历史就断了。
-  say "已卸载。配置保留在 $CONF_DIR（含机器 uuid，重装可续用）"
+  say "已卸载。配置保留在 ${CONF_DIR}（含机器 uuid，重装可续用）"
   say "要彻底清除：rm -rf $CONF_DIR"
   exit 0
 fi

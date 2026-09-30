@@ -42,7 +42,15 @@ func TestSessionChannelsEndWithLogin(t *testing.T) {
 			}
 			if end == "expiry" {
 				s.mu.Lock()
-				s.tokens[tok].expires = time.Now().Add(25 * time.Millisecond)
+				s.tokens[tok].expires = time.Now().Add(150 * time.Millisecond)
+				s.mu.Unlock()
+			}
+			if end == "eviction" {
+				// Coarse clocks can give a burst of logins identical expiry
+				// timestamps. Make this fixture strictly oldest so the test
+				// observes revocation of the session actually chosen for eviction.
+				s.mu.Lock()
+				s.tokens[tok].expires = time.Now().Add(sessionTTL - time.Hour)
 				s.mu.Unlock()
 			}
 			first, ok := s.sessionDone(tok)
