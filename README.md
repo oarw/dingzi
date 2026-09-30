@@ -1,5 +1,7 @@
 # Dingzi 钉子
 
+**简体中文** | [English](README.en.md)
+
 [![CI](https://github.com/oarw/dingzi/actions/workflows/ci.yml/badge.svg)](https://github.com/oarw/dingzi/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/oarw/dingzi)](https://github.com/oarw/dingzi/releases/latest)
 [![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)

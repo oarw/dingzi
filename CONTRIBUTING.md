@@ -1,5 +1,7 @@
 # 贡献指南
 
+**简体中文** | [English](CONTRIBUTING.en.md)
+
 Dingzi 是 Go 编写的轻量服务器监控面板与 Agent。网页资源内嵌，无前端构建步骤。
 贡献应让使用和维护更简单；项目边界与设计约定见 [维护指南](MAINTAINING.md)。
 
