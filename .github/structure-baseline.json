@@ -1,0 +1,14 @@
+{
+  "internal/server/alerts.go": {
+    "lines": 634,
+    "reason": "Before extending alerts, split notification delivery, evaluation and HTTP handlers in the same package; see MAINTAINING.md."
+  },
+  "internal/server/terminal.go": {
+    "lines": 517,
+    "reason": "Before extending terminals, separate registry and bridge while preserving session revocation and close ownership; see MAINTAINING.md."
+  },
+  "internal/server/web/app.js": {
+    "bytes": 29812,
+    "reason": "Before extending admin views, split by feature with explicit event and request lifetimes; see MAINTAINING.md."
+  }
+}

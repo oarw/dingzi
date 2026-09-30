@@ -91,6 +91,10 @@ jobs:
           sh -n install.sh
           sh -n install-server.sh
           sh -n e2e/service_install.sh
+      - name: Source structure limits
+        run: |
+          python3 scripts/check-structure.py
+          python3 -B -m unittest discover -s e2e -p structure_test.py
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
