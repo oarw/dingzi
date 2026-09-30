@@ -210,10 +210,21 @@ jobs:
           if-no-files-found: error
 
   # ── 发布 ───────────────────────────────────────────────────────────────────
+  image:
+    needs: [version, build]
+    if: needs.version.outputs.should_release == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
+
   publish:
     permissions:
       contents: write
-    needs: [version, build]
+    needs: [version, build, image]
     if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -243,6 +254,7 @@ jobs:
           PREV: ${{ needs.version.outputs.prev_tag }}
           TAG: ${{ needs.version.outputs.tag }}
           IS_PRE: ${{ needs.version.outputs.prerelease }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
         run: |
           set -euo pipefail
           {
@@ -296,6 +308,15 @@ jobs:
             echo '```'
             echo
             echo "默认监听 8008；首次密码和 Agent 密钥见服务日志。HTTPS 反代部署时加 \`--secure-cookie\`。"
+            echo
+            echo "### Docker / Compose"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${TAG}/compose.yaml -o compose.yaml"
+            printf 'DINGZI_IMAGE=ghcr.io/%s:%s docker compose up -d\n' '${{ github.repository }}' "${TAG#v}"
+            echo '```'
+            echo
+            printf '镜像：`ghcr.io/%s@%s`（linux/amd64、linux/arm64）。\n' '${{ github.repository }}' "$IMAGE_DIGEST"
             echo
             echo "### Agent"
             echo

@@ -1,0 +1,24 @@
+name: dingzi
+services:
+  dingzi:
+    image: ${DINGZI_IMAGE:-ghcr.io/oarw/dingzi:latest}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "${DINGZI_BIND:-127.0.0.1}:${DINGZI_PORT:-8008}:8008"
+    volumes:
+      - dingzi_data:/data
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    command: ["--data", "/data", "--listen", ":8008", "--secure-cookie=${DINGZI_SECURE_COOKIE:-false}"]
+    stop_grace_period: 30s
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  dingzi_data:

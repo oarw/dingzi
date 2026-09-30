@@ -1,0 +1,118 @@
+name: Docker
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      prerelease:
+        type: boolean
+        default: false
+    outputs:
+      digest:
+        description: Published multi-platform image digest
+        value: ${{ jobs.publish.outputs.digest }}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Rebuild an already published stable version (for example 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository == 'oarw/dingzi' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select immutable source and image tags
+        id: meta
+        env:
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+          # workflow_call keeps the caller event. Standalone rebuilds have
+          # version input but no release-workflow bump input.
+          REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version != '' }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || exit 1
+          LATEST=false
+          if [ "$REBUILD" = true ]; then
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+            gh release view "v$VERSION" --json isDraft,isPrerelease --jq 'select(.isDraft == false and .isPrerelease == false)' | grep -q .
+            git checkout --detach "$(git rev-parse "refs/tags/v$VERSION^{commit}")"
+            [ "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" != "v$VERSION" ] || LATEST=true
+          elif [ "$PRERELEASE" != true ]; then
+            LATEST=true
+          fi
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          {
+            echo 'tags<<TAGS'
+            echo "$IMAGE:$VERSION"
+            if [ "$LATEST" = true ]; then echo "$IMAGE:latest"; fi
+            echo TAGS
+          } >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - name: Build native image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: dingzi-ci:local
+          build-args: |
+            VERSION=${{ inputs.version }}
+            REVISION=${{ steps.meta.outputs.revision }}
+          cache-from: type=gha,scope=dingzi-container
+      - name: Verify Compose deployment
+        env:
+          DINGZI_TEST_VERSION: ${{ inputs.version }}
+        run: python3 e2e/docker_smoke.py
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish amd64 and arm64 images
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ inputs.version }}
+            REVISION=${{ steps.meta.outputs.revision }}
+          cache-from: type=gha,scope=dingzi-container
+          cache-to: type=gha,mode=max,scope=dingzi-container
+          provenance: mode=max
+          sbom: true
+      - name: Verify public pull by digest
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          ANON_CONFIG=$(mktemp -d)
+          if ! DOCKER_CONFIG="$ANON_CONFIG" docker pull "$IMAGE@$DIGEST"; then
+            echo 'The image must allow anonymous pulls. For the first publication, set the GHCR package visibility to public, then rerun this failed job.' >&2
+            echo 'https://github.com/users/oarw/packages/container/dingzi/settings' >&2
+            exit 1
+          fi
+          echo "Published: $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"

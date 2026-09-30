@@ -1,0 +1,10 @@
+# Keep runtime credentials, Git history and development notes out of builds.
+**
+!Dockerfile
+!go.mod
+!go.sum
+!LICENSE
+!cmd/
+!cmd/**
+!internal/
+!internal/**

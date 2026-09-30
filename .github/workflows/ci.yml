@@ -18,6 +18,32 @@ permissions:
   contents: read
 
 jobs:
+  container:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Build native container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: dingzi-ci:local
+          build-args: |
+            VERSION=ci
+            REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=container-${{ runner.arch }}
+          cache-to: type=gha,mode=max,scope=container-${{ runner.arch }}
+      - name: Verify Compose health, permissions and persistence
+        run: python3 e2e/docker_smoke.py
+
   test:
     # Exercise platform-specific collectors and Unix terminal integration.
     strategy:

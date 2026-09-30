@@ -11,7 +11,7 @@
 
 **单文件部署 · 单端口通信 · 实时与历史指标 · 独立管理后台 · 中文界面**
 
-[功能](#功能) · [工作方式](#工作方式) · [安装面板](#安装面板) · [接入探针](#agent-端一键安装) · [平台支持](#手动运行与平台) · [GitHub 登录](#github-登录) · [常见问题](#常见问题)
+[功能](#功能) · [安装面板](#安装面板) · [Docker](#docker--compose) · [接入探针](#agent-端一键安装) · [平台支持](#手动运行与平台) · [GitHub 登录](#github-登录) · [常见问题](#常见问题)
 
 ## 功能
 
@@ -22,6 +22,7 @@
 - 随机管理员密码，可选 GitHub 账号白名单登录。
 - 探针自动重连、独立身份凭证；按需开启网页终端。
 - Linux systemd / OpenRC 一键安装、升级和卸载。
+- Docker / Compose 面板部署，提供 amd64、arm64 镜像。
 
 | 能力 | 说明 |
 | --- | --- |
@@ -72,6 +73,66 @@ tail -n 50 /var/log/dingzi-server.log
 ```
 
 首次登录后，可以在设置中修改站点名称和首页说明，再接入第一台探针。
+
+### Docker / Compose
+
+面板镜像为 [`ghcr.io/oarw/dingzi`](https://github.com/oarw/dingzi/pkgs/container/dingzi)，支持 `linux/amd64` 和 `linux/arm64`。
+`latest` 跟随最新正式版，也可使用 `0.1.0` 等版本标签。
+
+下载 [compose.yaml](compose.yaml) 并启动：
+
+```sh
+mkdir -p dingzi && cd dingzi
+curl -fsSL https://raw.githubusercontent.com/oarw/dingzi/main/compose.yaml -o compose.yaml
+docker compose up -d
+docker compose logs dingzi
+```
+
+默认在本机 `http://127.0.0.1:8008/` 提供服务，`/admin/` 为后台；首次密码和注册密钥见日志。
+配置与 SQLite 保存在命名卷中，重建容器会保留数据。Compose 默认启用健康检查、非 root 用户、只读根目录和权限限制。
+
+可通过同目录的 `.env` 或命令前的环境变量修改常用选项：
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `DINGZI_IMAGE` | `ghcr.io/oarw/dingzi:latest` | 固定镜像版本或使用自行构建的镜像 |
+| `DINGZI_BIND` | `127.0.0.1` | 宿主机绑定地址；需要其他主机访问时按部署边界设置 |
+| `DINGZI_PORT` | `8008` | 宿主机端口 |
+| `DINGZI_SECURE_COOKIE` | `false` | HTTPS 反代部署时设为 `true` |
+
+例如固定版本并启用 HTTPS Cookie：
+
+```sh
+DINGZI_IMAGE=ghcr.io/oarw/dingzi:0.1.0 DINGZI_SECURE_COOKIE=true docker compose up -d
+```
+
+反向代理配置见下一节。探针仍连接你的面板域名；建议在被监控主机上安装 Agent 单文件程序，以采集宿主机指标。
+本镜像运行面板，不需要 Docker Socket、特权容器或宿主机系统目录挂载。
+
+也可以直接使用 Docker：
+
+```sh
+docker run -d --name dingzi --restart unless-stopped \
+  --read-only --cap-drop ALL --security-opt no-new-privileges=true \
+  --tmpfs /tmp:rw,size=16m --stop-timeout 30 \
+  -p 127.0.0.1:8008:8008 -v dingzi_data:/data \
+  ghcr.io/oarw/dingzi:0.1.0
+docker logs dingzi
+```
+
+使用宿主机目录绑定挂载时，先创建只允许容器 UID/GID `10001:10001` 访问的数据目录；命名卷无需这一步。
+更改 OAuth 配置前先停止服务，再编辑卷中的 `config.yaml`，保留原有密钥。
+
+升级前备份完整数据目录，随后拉取镜像并重建：
+
+```sh
+docker compose stop dingzi
+docker compose cp dingzi:/data ./dingzi-backup
+docker compose pull
+docker compose up -d
+```
+
+`docker compose down` 保留命名卷；不要使用 `down -v` 删除正在使用的数据。需要回退时使用对应版本镜像和停机备份。
 
 ### HTTPS 反向代理
 
@@ -270,9 +331,9 @@ Windows 等非 Unix 平台不提供 PTY 终端。终端权限等同于 Agent 进
 </details>
 
 <details>
-<summary>有 Docker 镜像或 Windows 服务安装器吗？</summary>
+<summary>容器、Windows 和 macOS 分别怎样部署？</summary>
 
-目前提供单文件程序，以及 Linux systemd / OpenRC 安装脚本；尚未提供官方 Docker 镜像、Compose 配置、Windows 服务或 macOS launchd 安装器。
+面板提供 Docker / Compose 部署及 Linux systemd / OpenRC 安装脚本。Windows 和 macOS 可手动运行对应单文件程序；尚未提供 Windows 服务或 macOS launchd 安装器。
 
 </details>
 
@@ -296,6 +357,17 @@ node --test e2e/board_test.mjs
 
 源码目录：`cmd/server` 与 `cmd/agent` 为程序入口，`internal/server` 为面板和内嵌网页，
 `internal/agent` 为采集及检查逻辑，`internal/proto` 为双方协议，`e2e` 为回归验证。
+
+本地构建镜像并使用同一份 Compose 配置：
+
+```sh
+docker build --build-arg VERSION=dev -t dingzi:local .
+DINGZI_IMAGE=dingzi:local docker compose up -d
+```
+
+CI 在 amd64、arm64 原生机器上验证容器健康、登录、配置/数据库持久化和正常退出。
+正式发布调用 Docker workflow 构建双架构镜像、生成来源证明与 SBOM，并验证匿名拉取后再发布二进制。
+维护者首次发布 GHCR 包时需将包可见性设为 Public；后续版本自动发布。Docker workflow 也支持按已发布的正式版本标签重建镜像。
 
 ## 参与贡献
 

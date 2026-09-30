@@ -18,6 +18,7 @@
 # local config (keep the examples)
 config.yaml
 agent.yaml
+/.env
 !config.example.yaml
 !agent.example.yaml
 
